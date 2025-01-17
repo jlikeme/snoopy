@@ -64,9 +64,6 @@
             [others addObject:file];
             clip.others = [others copy];
         }
-        if (!checked) {
-            NSLog(@"test");
-        }
     }
     return clipsDict.allValues;
 }
