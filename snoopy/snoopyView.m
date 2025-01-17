@@ -22,8 +22,10 @@
 @property (nonatomic, strong) SKScene *scene;
 @property (nonatomic, assign) BOOL test;
 @property (nonatomic, assign) int index;
+@property (nonatomic, copy) NSArray<NSString *> *videoURLs;
 @property (nonatomic, copy) NSArray<NSColor *> *colors;
 @property (nonatomic, copy) NSArray<NSString *> *backgroundImages;
+//@property (nonatomic, strong) NSTextField *testText;
 
 @end
 
@@ -42,6 +44,11 @@
         [self loadBackgroundImages];
 //        self.wantsLayer = YES;
         [self setupPlayer];
+//        self.testText = [[NSTextField alloc] initWithFrame:CGRectMake(10, 10, 200, 200)];
+//        self.testText.backgroundColor = [NSColor blackColor];
+//        self.testText.textColor = [NSColor whiteColor];
+//        self.testText.stringValue = @"testtest";
+//        [self addSubview:self.testText];
     }
     return self;
 }
@@ -64,6 +71,7 @@
 
 - (NSArray<AVPlayerItem *> *)configPlayerItems {
     NSArray<NSString *> *videoURLs = [Clip randomClipURLs:[Clip loadClips]];
+    self.videoURLs = videoURLs;
     NSMutableArray<AVPlayerItem *> *playerItems = [NSMutableArray array];
     
     for (NSString *videoStr in videoURLs) {
@@ -158,13 +166,19 @@
 
 - (void)playerItemDidReachEnd:(NSNotification *)notification {
     AVPlayerItem *finishedItem = notification.object;
-        
-    [finishedItem seekToTime:kCMTimeZero completionHandler:nil];
+    
+    NSURL *videoURL = [[NSBundle bundleForClass:[self class]] URLForResource:self.videoURLs[self.index] withExtension:nil];
+    AVPlayerItem *item = [AVPlayerItem playerItemWithURL:videoURL];
+    if (finishedItem) {
+        [self.queuePlayer insertItem:item afterItem:nil];
+    }
     self.index++;
-    if (self.index % self.queuePlayer.items.count == 0) {
+    if (self.index % self.videoURLs.count == 0) {
+        self.index = 0;
         // change background color and image
         SKSpriteNode *imageNode = (SKSpriteNode *)[self.scene childNodeWithName:@"backgroundImage"];
-        NSImage *image = [NSImage imageNamed:self.backgroundImages[arc4random_uniform(self.backgroundImages.count)]];
+        NSURL *imageURL = [[NSBundle bundleForClass:[self class]] URLForResource:self.backgroundImages[arc4random_uniform(self.backgroundImages.count)] withExtension:nil];
+        NSImage *image = [[NSImage alloc] initWithContentsOfURL:imageURL];
         double imageAspect = image.size.height / self.scene.size.height;
         imageNode.texture = [SKTexture textureWithImage:image];
         imageNode.position = CGPointMake(self.scene.size.width / 2, self.scene.size.height / 2 - self.scene.size.height * offside);
@@ -172,11 +186,9 @@
         
         SKSpriteNode *colorNode = (SKSpriteNode *)[self.scene childNodeWithName:@"backgroundColor"];
         colorNode.color = self.colors[arc4random_uniform(self.colors.count)];
+        
     }
-    
-//    if ([self.playerItems containsObject:finishedItem]) {
-//        [self.queuePlayer insertItem:finishedItem afterItem:nil];
-//    }
+//    self.testText.stringValue = [NSString stringWithFormat:@"%d, %d", self.index, self.queuePlayer.items.count];
 }
 
 //- (void)setFrame:(NSRect)frame {
