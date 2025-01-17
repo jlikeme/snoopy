@@ -29,6 +29,10 @@
         NSString *groupName = (file.length >= 9) ? [file substringToIndex:9] : file;
 //        NSString *filePath = [resourcePath stringByAppendingPathComponent:file];
         
+        // blank video??? alpha channel!!!
+//        if ([file containsString:@"101_WE001"]) {
+//            continue;
+//        }
         Clip *clip = clipsDict[groupName];
         if (!clip) {
             clip = [[Clip alloc] init];
