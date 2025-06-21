@@ -1,0 +1,48 @@
+{
+  "" : {
+    "diagnostics" : "/Users/miugrey/Projects/snoopy/build/snoopy.build/Debug/snoopy.build/Objects-normal/x86_64/snoopy-master.dia",
+    "emit-module-dependencies" : "/Users/miugrey/Projects/snoopy/build/snoopy.build/Debug/snoopy.build/Objects-normal/x86_64/snoopy-master-emit-module.d",
+    "emit-module-diagnostics" : "/Users/miugrey/Projects/snoopy/build/snoopy.build/Debug/snoopy.build/Objects-normal/x86_64/snoopy-master-emit-module.dia",
+    "swift-dependencies" : "/Users/miugrey/Projects/snoopy/build/snoopy.build/Debug/snoopy.build/Objects-normal/x86_64/snoopy-master.swiftdeps"
+  },
+  "/Users/miugrey/Projects/snoopy/snoopy/ArrayExtension.swift" : {
+    "const-values" : "/Users/miugrey/Projects/snoopy/build/snoopy.build/Debug/snoopy.build/Objects-normal/x86_64/ArrayExtension.swiftconstvalues",
+    "dependencies" : "/Users/miugrey/Projects/snoopy/build/snoopy.build/Debug/snoopy.build/Objects-normal/x86_64/ArrayExtension.d",
+    "diagnostics" : "/Users/miugrey/Projects/snoopy/build/snoopy.build/Debug/snoopy.build/Objects-normal/x86_64/ArrayExtension.dia",
+    "index-unit-output-path" : "/snoopy.build/Debug/snoopy.build/Objects-normal/x86_64/ArrayExtension.o",
+    "llvm-bc" : "/Users/miugrey/Projects/snoopy/build/snoopy.build/Debug/snoopy.build/Objects-normal/x86_64/ArrayExtension.bc",
+    "object" : "/Users/miugrey/Projects/snoopy/build/snoopy.build/Debug/snoopy.build/Objects-normal/x86_64/ArrayExtension.o",
+    "swift-dependencies" : "/Users/miugrey/Projects/snoopy/build/snoopy.build/Debug/snoopy.build/Objects-normal/x86_64/ArrayExtension.swiftdeps",
+    "swiftmodule" : "/Users/miugrey/Projects/snoopy/build/snoopy.build/Debug/snoopy.build/Objects-normal/x86_64/ArrayExtension~partial.swiftmodule"
+  },
+  "/Users/miugrey/Projects/snoopy/snoopy/HEICSequencePlayer.swift" : {
+    "const-values" : "/Users/miugrey/Projects/snoopy/build/snoopy.build/Debug/snoopy.build/Objects-normal/x86_64/HEICSequencePlayer.swiftconstvalues",
+    "dependencies" : "/Users/miugrey/Projects/snoopy/build/snoopy.build/Debug/snoopy.build/Objects-normal/x86_64/HEICSequencePlayer.d",
+    "diagnostics" : "/Users/miugrey/Projects/snoopy/build/snoopy.build/Debug/snoopy.build/Objects-normal/x86_64/HEICSequencePlayer.dia",
+    "index-unit-output-path" : "/snoopy.build/Debug/snoopy.build/Objects-normal/x86_64/HEICSequencePlayer.o",
+    "llvm-bc" : "/Users/miugrey/Projects/snoopy/build/snoopy.build/Debug/snoopy.build/Objects-normal/x86_64/HEICSequencePlayer.bc",
+    "object" : "/Users/miugrey/Projects/snoopy/build/snoopy.build/Debug/snoopy.build/Objects-normal/x86_64/HEICSequencePlayer.o",
+    "swift-dependencies" : "/Users/miugrey/Projects/snoopy/build/snoopy.build/Debug/snoopy.build/Objects-normal/x86_64/HEICSequencePlayer.swiftdeps",
+    "swiftmodule" : "/Users/miugrey/Projects/snoopy/build/snoopy.build/Debug/snoopy.build/Objects-normal/x86_64/HEICSequencePlayer~partial.swiftmodule"
+  },
+  "/Users/miugrey/Projects/snoopy/snoopy/SnoopyClip.swift" : {
+    "const-values" : "/Users/miugrey/Projects/snoopy/build/snoopy.build/Debug/snoopy.build/Objects-normal/x86_64/SnoopyClip.swiftconstvalues",
+    "dependencies" : "/Users/miugrey/Projects/snoopy/build/snoopy.build/Debug/snoopy.build/Objects-normal/x86_64/SnoopyClip.d",
+    "diagnostics" : "/Users/miugrey/Projects/snoopy/build/snoopy.build/Debug/snoopy.build/Objects-normal/x86_64/SnoopyClip.dia",
+    "index-unit-output-path" : "/snoopy.build/Debug/snoopy.build/Objects-normal/x86_64/SnoopyClip.o",
+    "llvm-bc" : "/Users/miugrey/Projects/snoopy/build/snoopy.build/Debug/snoopy.build/Objects-normal/x86_64/SnoopyClip.bc",
+    "object" : "/Users/miugrey/Projects/snoopy/build/snoopy.build/Debug/snoopy.build/Objects-normal/x86_64/SnoopyClip.o",
+    "swift-dependencies" : "/Users/miugrey/Projects/snoopy/build/snoopy.build/Debug/snoopy.build/Objects-normal/x86_64/SnoopyClip.swiftdeps",
+    "swiftmodule" : "/Users/miugrey/Projects/snoopy/build/snoopy.build/Debug/snoopy.build/Objects-normal/x86_64/SnoopyClip~partial.swiftmodule"
+  },
+  "/Users/miugrey/Projects/snoopy/snoopy/SnoopyView.swift" : {
+    "const-values" : "/Users/miugrey/Projects/snoopy/build/snoopy.build/Debug/snoopy.build/Objects-normal/x86_64/SnoopyView.swiftconstvalues",
+    "dependencies" : "/Users/miugrey/Projects/snoopy/build/snoopy.build/Debug/snoopy.build/Objects-normal/x86_64/SnoopyView.d",
+    "diagnostics" : "/Users/miugrey/Projects/snoopy/build/snoopy.build/Debug/snoopy.build/Objects-normal/x86_64/SnoopyView.dia",
+    "index-unit-output-path" : "/snoopy.build/Debug/snoopy.build/Objects-normal/x86_64/SnoopyView.o",
+    "llvm-bc" : "/Users/miugrey/Projects/snoopy/build/snoopy.build/Debug/snoopy.build/Objects-normal/x86_64/SnoopyView.bc",
+    "object" : "/Users/miugrey/Projects/snoopy/build/snoopy.build/Debug/snoopy.build/Objects-normal/x86_64/SnoopyView.o",
+    "swift-dependencies" : "/Users/miugrey/Projects/snoopy/build/snoopy.build/Debug/snoopy.build/Objects-normal/x86_64/SnoopyView.swiftdeps",
+    "swiftmodule" : "/Users/miugrey/Projects/snoopy/build/snoopy.build/Debug/snoopy.build/Objects-normal/x86_64/SnoopyView~partial.swiftmodule"
+  }
+}

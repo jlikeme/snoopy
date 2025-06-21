@@ -4,15 +4,48 @@
 <dict>
 	<key>SchemeUserState</key>
 	<dict>
+		<key>SKTest.xcscheme_^#shared#^_</key>
+		<dict>
+			<key>orderHint</key>
+			<integer>2</integer>
+		</dict>
+		<key>SnoopyPreview.xcscheme_^#shared#^_</key>
+		<dict>
+			<key>orderHint</key>
+			<integer>1</integer>
+		</dict>
 		<key>snoopy.xcscheme_^#shared#^_</key>
 		<dict>
 			<key>orderHint</key>
 			<integer>0</integer>
 		</dict>
-		<key>test.xcscheme_^#shared#^_</key>
+	</dict>
+	<key>SuppressBuildableAutocreation</key>
+	<dict>
+		<key>41580FAA2DC7445E0026119F</key>
 		<dict>
-			<key>orderHint</key>
-			<integer>1</integer>
+			<key>primary</key>
+			<true/>
+		</dict>
+		<key>415810C02DC7A8DF0026119F</key>
+		<dict>
+			<key>primary</key>
+			<true/>
+		</dict>
+		<key>4195CCD72DC6C608003E1B8B</key>
+		<dict>
+			<key>primary</key>
+			<true/>
+		</dict>
+		<key>41B448FF2DC91490002847F8</key>
+		<dict>
+			<key>primary</key>
+			<true/>
+		</dict>
+		<key>5151C0E72D38ECB60077D0D8</key>
+		<dict>
+			<key>primary</key>
+			<true/>
 		</dict>
 	</dict>
 </dict>

@@ -1,0 +1,2062 @@
+// SnoopyScreenSaverView.swift
+
+import AVFoundation
+import AVKit
+import ScreenSaver
+import SpriteKit
+
+// Define ViewStateType enum
+enum ViewStateType {
+    case initial
+    case playingAS
+    case transitioningToHalftoneHide  // Playing TM_Hide
+    case playingSTHide
+    case playingRPH
+    case playingBP  // Includes Loop
+    case playingAPIntro
+    case playingAPLoop
+    case playingAPOutro
+    case playingCM
+    case decidingNextHalftoneAction  // After BP loop or AP/CM finishes
+    case transitioningToASReveal  // Playing ST_Reveal
+    case playingTMReveal
+    case playingSSIntro  // Similar states for SS Loop, Outro etc.
+    // ... add other states as needed
+}
+
+@objc(SnoopyScreenSaverView)
+class SnoopyScreenSaverView: ScreenSaverView {
+    // 常量
+    private let scale: CGFloat = 720.0 / 1080.0
+    private let offside: CGFloat = 180.0 / 1080.0
+    
+    // --- State Management Properties ---
+    private var allClips: [SnoopyClip] = []
+    private var currentClipsQueue: [SnoopyClip] = []
+    private var currentClipIndex: Int = 0
+    private var currentNode: String?  // e.g., "BP001"
+    private var currentStateType: ViewStateType = .initial
+    private var currentRepeatCount: Int = 0  // For handling loops manually
+    private var isMasking: Bool = false  // Flag to indicate mask transition is active
+    // --- 添加状态变量 ---
+    private var bpCycleCount: Int = 0
+    private var lastTransitionNumber: String?  // Stores the number (e.g., "001") of the last ST/TM Reveal
+    private var nextAfterAS: [SnoopyClip] = []  // Stores clips to play after AS finishes
+    private var isFirstASPlayback: Bool = true  // 标记是否为初次AS播放
+    // --- 结束添加 ---
+    
+    // --- Player and Nodes ---
+    private var queuePlayer: AVQueuePlayer?
+    private var playerItem: AVPlayerItem?  // Keep track of the current item for notifications
+    private var overlayPlayer: AVQueuePlayer?  // Player for VI/WE overlays
+    private var overlayPlayerItem: AVPlayerItem?  // Track overlay item
+    private var overlayRepeatCount: Int = 0  // For overlay loops
+    
+    // --- Masking Properties ---
+    private var cropNode: SKCropNode?
+    
+    // --- HEIC Sequence Player Properties ---
+    private var heicSequencePlayer: HEICSequencePlayer?
+    private var tmMaskSpriteNode: SKSpriteNode?
+    
+    private var skView: SKView?
+    private var scene: SKScene?
+    private var backgroundColorNode: SKSpriteNode?
+    private var halftoneNode: SKSpriteNode?
+    private var backgroundImageNode: SKSpriteNode?  // IS image
+    private var videoNode: SKVideoNode?
+    private var overlayNode: SKVideoNode?  // Node for VI/WE overlays
+    
+    private let colors: [NSColor] = [
+        NSColor(red: 50.0 / 255.0, green: 60.0 / 255.0, blue: 47.0 / 255.0, alpha: 1.0),
+        NSColor(red: 5.0 / 255.0, green: 168.0 / 255.0, blue: 157.0 / 255.0, alpha: 1.0),
+        NSColor(red: 65.0 / 255.0, green: 176.0 / 255.0, blue: 246.0 / 255.0, alpha: 1.0),
+        NSColor(red: 238.0 / 255.0, green: 95.0 / 255.0, blue: 167.0 / 255.0, alpha: 1.0),
+        NSColor.black,
+    ]
+    
+    private var backgroundImages: [String] = []
+    
+    // MARK: - Initialization and Setup
+    
+    override init?(frame: NSRect, isPreview: Bool) {
+        super.init(frame: frame, isPreview: isPreview)
+        
+        animationTimeInterval = 1.0 / 30.0
+        
+        // 在Sonoma上延迟初始化，避免legacyScreenSaver问题
+        if #available(macOS 14.0, *) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                self.setupView()
+            }
+        } else {
+            setupView()
+        }
+    }
+    
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        
+        animationTimeInterval = 1.0 / 30.0
+        
+        // 在Sonoma上延迟初始化，避免legacyScreenSaver问题
+        if #available(macOS 14.0, *) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                self.setupView()
+            }
+        } else {
+            setupView()
+        }
+    }
+    
+    private func setupView() {
+        loadBackgroundImages()  // Load IS names
+        
+        // Setup SKView and Scene first
+        setupScene()
+        
+        // Asynchronously load clips and then start
+        Task {
+            do {
+                print("Loading clips...")
+                // Use SnoopyClip.loadClips() to load clips
+                self.allClips = try await SnoopyClip.loadClips()
+                print("Clips loaded: \(self.allClips.count)")
+                guard !self.allClips.isEmpty else {
+                    print("No clips loaded, cannot start.")
+                    // Handle error state - maybe show a static image or message
+                    return
+                }
+                // Setup player *after* clips are loaded
+                setupPlayer()
+                // Set initial state and start playback
+                setupInitialStateAndPlay()
+            } catch {
+                print("Error loading clips: \(error)")
+                // Handle error state
+            }
+        }
+        
+        // Notifications remain the same
+        setNotifications()
+    }
+    
+    private func loadBackgroundImages() {
+        guard let resourcePath = Bundle(for: type(of: self)).resourcePath else { return }
+        let fileManager = FileManager.default
+        
+        do {
+            let files = try fileManager.contentsOfDirectory(atPath: resourcePath)
+            // Filter for IS background images only, excluding TM animation files
+            let heicFiles = files.filter { file in
+                file.hasSuffix(".heic") && file.contains("_IS")
+            }
+            self.backgroundImages = heicFiles
+            print("🖼️ Loaded \(heicFiles.count) IS background images")
+        } catch {
+            print("Error reading Resources directory: \(error.localizedDescription)")
+        }
+    }
+    
+    private func setupScene() {
+        guard skView == nil else { return }  // Prevent double setup
+        
+        // --- Initialize Players FIRST ---
+        self.queuePlayer = AVQueuePlayer()
+        self.overlayPlayer = AVQueuePlayer()
+        
+        let skView = SKView(frame: bounds)
+        skView.wantsLayer = true
+        skView.layer?.backgroundColor = NSColor.clear.cgColor  // Make SKView transparent
+        skView.ignoresSiblingOrder = true
+        skView.allowsTransparency = true
+        self.skView = skView
+        addSubview(skView)
+        
+        let scene = SKScene(size: bounds.size)
+        scene.scaleMode = .aspectFill
+        scene.backgroundColor = .clear  // Scene background clear
+        self.scene = scene
+        
+        // Layer 0: Solid Background Color
+        let solidColorBGNode = SKSpriteNode(color: NSColor.black, size: scene.size)
+        solidColorBGNode.position = CGPoint(x: scene.size.width / 2, y: scene.size.height / 2)
+        solidColorBGNode.zPosition = 0
+        solidColorBGNode.name = "backgroundColor"
+        solidColorBGNode.alpha = 1
+        scene.addChild(solidColorBGNode)
+        self.backgroundColorNode = solidColorBGNode
+        
+        // Layer 1: Halftone Pattern
+        if let bgImagePath = Bundle(for: type(of: self)).path(
+            forResource: "halftone_pattern", ofType: "png"),
+           let bgImage = NSImage(contentsOfFile: bgImagePath)
+        {
+            let bgtexture = SKTexture(image: bgImage)
+            let halftone = SKSpriteNode(texture: bgtexture)
+            halftone.position = CGPoint(x: scene.size.width / 2, y: scene.size.height / 2)
+            halftone.size = scene.size
+            halftone.zPosition = 1
+            halftone.alpha = 0  // 初始设置为透明，直到AS开始播放
+            halftone.name = "halftonePattern"
+            halftone.blendMode = .alpha
+            scene.addChild(halftone)
+            self.halftoneNode = halftone
+        }
+        
+        // Layer 2: IS Background Image
+        let imageNode = SKSpriteNode()
+        imageNode.position = CGPoint(x: scene.size.width / 2, y: scene.size.height / 2)
+        imageNode.zPosition = 2
+        imageNode.name = "backgroundImage"
+        imageNode.blendMode = .alpha
+        imageNode.alpha = 0  // 初始设置为透明，直到AS开始播放
+        scene.addChild(imageNode)
+        self.backgroundImageNode = imageNode
+        
+        // Layer 3: Main Video Node - Initialize WITH player (用于播放BP、AP、CM、ST、RPH)
+        guard let mainPlayer = self.queuePlayer else {
+            print("Error: Main queuePlayer is nil during scene setup.")
+            return
+        }
+        let videoNode = SKVideoNode(avPlayer: mainPlayer)
+        videoNode.position = CGPoint(x: scene.size.width / 2, y: scene.size.height / 2)
+        videoNode.size = scene.size
+        videoNode.zPosition = 3  // 常规内容在Layer 3
+        videoNode.name = "videoNode"
+        scene.addChild(videoNode)
+        self.videoNode = videoNode
+        
+        // Layer 10: 创建cropNode专门用于AS内容，始终保持在最上层以确保遮罩效果正确
+        let cropNode = SKCropNode()
+        cropNode.position = CGPoint(x: scene.size.width / 2, y: scene.size.height / 2)
+        cropNode.zPosition = 10  // AS内容在最上层，便于遮罩处理
+        // 注意：AS内容将在播放时动态添加到cropNode中
+        scene.addChild(cropNode)
+        self.cropNode = cropNode
+        
+        // Layer 4: Overlay Node (For VI/WE) - Initialize WITH player
+        guard let ovPlayer = self.overlayPlayer else {
+            print("Error: Overlay player is nil during scene setup.")
+            return
+        }
+        let overlayNode = SKVideoNode(avPlayer: ovPlayer)
+        overlayNode.position = CGPoint(x: scene.size.width / 2, y: scene.size.height / 2)
+        overlayNode.size = scene.size  // Adjust size/position as needed for overlays
+        overlayNode.zPosition = 4
+        overlayNode.name = "overlayNode"
+        overlayNode.isHidden = true  // Initially hidden
+        scene.addChild(overlayNode)
+        self.overlayNode = overlayNode
+        
+        skView.presentScene(scene)
+    }
+    
+    private func setupPlayer() {
+        guard self.queuePlayer != nil, self.overlayPlayer != nil else {
+            print("Error: Players not initialized before setupPlayer call.")
+            return
+        }
+        
+        NotificationCenter.default.removeObserver(
+            self, name: .AVPlayerItemDidPlayToEndTime, object: nil)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(playerItemDidReachEnd(_:)),
+            name: .AVPlayerItemDidPlayToEndTime,
+            object: nil
+        )
+    }
+    
+    private func setupInitialStateAndPlay() {
+        print("Setting up initial state...")
+        guard let initialAS = findRandomClip(ofType: .AS) else {
+            print("Error: No AS clips found to start.")
+            return
+        }
+        print("Initial AS: \(initialAS.fileName)")
+        currentStateType = .playingAS
+        currentClipsQueue = [initialAS]
+        currentClipIndex = 0
+        playNextClipInQueue()
+    }
+    
+    // MARK: - Core Playback Logic
+    
+    private func playNextClipInQueue() {
+        guard !isMasking else {
+            print("⏳ 遮罩过渡正在进行中，延迟播放下一个主片段。")
+            return
+        }
+        guard currentClipIndex < currentClipsQueue.count else {
+            print("✅ 当前队列播放完毕。处理序列结束...")
+            handleEndOfQueue()
+            return
+        }
+        
+        let clipToPlay = currentClipsQueue[currentClipIndex]
+        print(
+            "🎬 正在处理片段 (\(currentClipIndex + 1)/\(currentClipsQueue.count)): \(clipToPlay.fileName) (\(clipToPlay.type))"
+        )
+        
+        // 首先更新当前状态，确保状态正确
+        updateStateForStartingClip(clipToPlay)
+        
+        if clipToPlay.type == .TM_Hide || clipToPlay.type == .TM_Reveal {
+            let basePattern = clipToPlay.fileName
+            print("🔍 TM片段详情: fileName=\(clipToPlay.fileName), type=\(clipToPlay.type), groupID=\(clipToPlay.groupID ?? "nil"), number=\(clipToPlay.number ?? "nil")")
+            
+            // 使用HEICSequencePlayer来播放TM序列
+            if self.heicSequencePlayer == nil {
+                self.heicSequencePlayer = HEICSequencePlayer()
+            }
+            
+            guard let player = self.heicSequencePlayer else {
+                print("❌ 错误：无法创建HEIC序列播放器。跳过片段 [\(clipToPlay.fileName)]。")
+                currentClipIndex += 1
+                playNextClipInQueue()
+                return
+            }
+            
+            // 加载TM序列
+            let success = player.loadSequence(basePattern: basePattern)
+            if !success {
+                print("❌ 错误：无法加载HEIC序列 [\(basePattern)]。跳过片段 [\(clipToPlay.fileName)]。")
+                currentClipIndex += 1
+                playNextClipInQueue()
+                return
+            }
+            
+            let isRevealing = (clipToPlay.type == .TM_Reveal)
+            let contentClip: SnoopyClip? =
+            isRevealing ? currentClipsQueue[safe: currentClipIndex + 1] : nil
+            
+            startMaskTransitionWithHEIC(
+                basePattern: basePattern, tmClip: clipToPlay, contentClip: contentClip, isRevealing: isRevealing)
+            return
+        }
+        
+        guard
+            let url = Bundle(for: type(of: self)).url(
+                forResource: clipToPlay.fileName, withExtension: nil)
+        else {
+            print("❌ 错误：找不到视频文件 \(clipToPlay.fileName)")
+            currentClipIndex += 1
+            playNextClipInQueue()
+            return
+        }
+        print("▶️ 播放主片段: \(clipToPlay.fileName)")
+        
+        let newItem = AVPlayerItem(url: url)
+        self.playerItem = newItem
+        
+        if clipToPlay.type == .BP_Node || clipToPlay.type == .AP_Loop {
+            let initialRepeatCount = max(1, clipToPlay.repeatCount)
+            self.currentRepeatCount = max(0, initialRepeatCount - 1)
+            print(
+                "🔁 循环片段检测到: \(clipToPlay.fileName)。剩余重复次数: \(self.currentRepeatCount)"
+            )
+        } else if clipToPlay.type == .SS_Loop {
+            self.currentRepeatCount = 0  // SS_Loop only plays once
+            print(
+                "🔁 循环片段检测到: \(clipToPlay.fileName)。SS_Loop 设置为播放一次。"
+            )
+        } else {
+            self.currentRepeatCount = 0
+        }
+        
+        queuePlayer?.removeAllItems()
+        queuePlayer?.insert(newItem, after: nil)
+        queuePlayer?.play()
+        
+        // 根据内容类型决定播放位置
+        if clipToPlay.type == .AS {
+            // AS内容在cropNode中播放
+            if let mainVideoNode = self.videoNode, let cropNode = self.cropNode {
+                // 将videoNode从场景中移除，加入cropNode
+                mainVideoNode.removeFromParent()
+                mainVideoNode.position = .zero  // 相对于cropNode的位置
+                cropNode.addChild(mainVideoNode)
+                print("📊 AS内容已移至cropNode中播放")
+            }
+        } else {
+            // BP、AP、CM、ST、RPH等内容在Layer 3直接播放
+            if let mainVideoNode = self.videoNode, let scene = self.scene {
+                // 将videoNode从cropNode中移除，直接加入场景
+                mainVideoNode.removeFromParent()
+                mainVideoNode.position = CGPoint(x: scene.size.width / 2, y: scene.size.height / 2)
+                scene.addChild(mainVideoNode)
+                print("📊 常规内容在Layer 3播放")
+            }
+        }
+        
+        // 关键修改：当播放AS类型片段时，监听播放完成事件
+        if clipToPlay.type == .AS {
+            // 监听AS播放完成事件，播放完成后自动开始TM_Hide
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(asPlaybackEnded(_:)),
+                name: .AVPlayerItemDidPlayToEndTime,
+                object: newItem
+            )
+        } else if clipToPlay.type == .BP_Node || clipToPlay.type == .AP_Loop {
+            let overlayChance = 0.2
+            if Double.random(in: 0...1) < overlayChance {
+                tryPlayVIWEOverlay()
+            }
+        }
+    }
+    
+    private func updateStateForStartingClip(_ clip: SnoopyClip) {
+        switch clip.type {
+        case .AS:
+            currentStateType = .playingAS
+        case .TM_Hide:
+            currentStateType = .transitioningToHalftoneHide
+        case .ST_Hide:
+            currentStateType = .playingSTHide
+        case .RPH:
+            currentStateType = .playingRPH
+        case .BP_Node:
+            currentStateType = .playingBP
+            if let rphNode = clip.from {
+                self.currentNode = rphNode
+                print("📍 当前节点设置为: \(self.currentNode ?? "nil") 来自 RPH")
+            }
+        case .AP_Intro:
+            currentStateType = .playingAPIntro
+        case .AP_Loop:
+            currentStateType = .playingAPLoop
+        case .AP_Outro:
+            currentStateType = .playingAPOutro
+        case .CM:
+            currentStateType = .playingCM
+        case .ST_Reveal:
+            currentStateType = .transitioningToASReveal
+        case .TM_Reveal:
+            currentStateType = .playingTMReveal
+        case .SS_Intro:
+            currentStateType = .playingSSIntro
+        default:
+            print("⚠️ 未明确处理的片段类型: \(clip.type)")
+        }
+        print("📊 当前状态更新为: \(currentStateType)")
+    }
+    
+    @objc private func playerItemDidReachEnd(_ notification: Notification) {
+        guard !isMasking else { return }
+        
+        guard let finishedItem = notification.object as? AVPlayerItem else {
+            print("⚠️ 通知接收到的对象不是 AVPlayerItem。忽略。")
+            return
+        }
+        
+        if finishedItem == self.overlayPlayerItem {
+            handleOverlayItemFinish(finishedItem: finishedItem)
+            return
+        }
+        
+        guard finishedItem == self.playerItem else {
+            print("⚠️ 通知接收到意外的主播放器项目。忽略。")
+            return
+        }
+        print("✅ 主片段播放完成。")
+        
+        if currentRepeatCount > 0 {
+            print("🔁 循环片段。剩余重复次数: \(currentRepeatCount - 1)")
+            if let url = (finishedItem.asset as? AVURLAsset)?.url {
+                let newItem = AVPlayerItem(url: url)
+                self.playerItem = newItem
+                
+                queuePlayer?.removeAllItems()
+                queuePlayer?.insert(newItem, after: nil)
+                currentRepeatCount -= 1
+                queuePlayer?.play()
+                return
+            }
+        }
+        
+        guard currentClipIndex < currentClipsQueue.count else {
+            print("❌ 错误：playerItemDidReachEnd 调用时索引超出范围。")
+            return
+        }
+        let finishedClip = currentClipsQueue[currentClipIndex]
+        
+        guard finishedClip.type != .TM_Hide && finishedClip.type != .TM_Reveal else {
+            print("❌ 错误：主播放器意外完成 TM 片段。")
+            currentClipIndex += 1
+            playNextClipInQueue()
+            return
+        }
+        print("✅ 完成主片段: \(finishedClip.fileName)")
+        
+        
+        // BP_To_RPH播放完毕，预加载TM_Reveal和AS以便在ST_Reveal播放完成后立即使用
+        if finishedClip.type == .BP_To && finishedClip.to?.starts(with: "RPH") ?? false {
+            print("🎬 BP_To_RPH 完成。预加载TM_Reveal和AS。")
+            
+            // 检查下一个是否是ST_Reveal
+            if currentClipIndex + 1 < currentClipsQueue.count
+                && currentClipsQueue[currentClipIndex + 1].type == .ST_Reveal
+            {
+                // TM_Reveal preloading removed - now handled by HEIC sequence player
+                print("🔄 Next clip is ST_Reveal - TM transitions now handled by HEIC sequence player")
+            }
+        }
+        
+        // ST_Reveal播放完毕，开始TM_Reveal和AS的播放流程
+        if finishedClip.type == .ST_Reveal {
+            print("🎬 ST_Reveal 完成。继续序列。")
+            
+            // 如果下一个是TM_Reveal，使用TM_Reveal过渡
+            if currentClipIndex + 1 < currentClipsQueue.count
+                && currentClipsQueue[currentClipIndex + 1].type == .TM_Reveal
+            {
+                // 第一次调用playerItemDidReachEnd时，我们已经预加载TM_Reveal和AS
+                // 增加索引并播放下一个片段，这将触发TM_Reveal的开始
+                currentClipIndex += 1
+                playNextClipInQueue()
+                return
+            }
+        }
+        
+        // 根据需求文档：只有初次AS播放完成后才加载背景
+        // 后续从BP跳转到AS的不需要重新加载背景，因为背景在首次AS后已经加载了
+        if finishedClip.type == .AS && isFirstASPlayback {
+            print("🎬 初次AS播放完成，现在加载背景")
+            updateBackgrounds()
+            isFirstASPlayback = false  // 标记初次AS播放已完成
+        } else if finishedClip.type == .SS_Outro {
+            updateBackgrounds()
+        }
+        
+        // 特殊处理：如果AS是通过TM_Reveal过渡显示的，不调用generateNextSequence
+        // 因为后续序列会由HEIC完成回调处理
+        if finishedClip.type == .AS && currentStateType == .playingTMReveal {
+            print("🔍 AS通过TM_Reveal过渡显示，跳过generateNextSequence，等待HEIC完成回调处理")
+            currentClipIndex += 1
+            // 不调用playNextClipInQueue，因为TM_Hide会由HEIC系统处理
+            return
+        }
+        
+        generateNextSequence(basedOn: finishedClip)
+        
+        currentClipIndex += 1
+        playNextClipInQueue()
+    }
+    
+    @objc private func asPlaybackEnded(_ notification: Notification) {
+        print("✅ AS视频播放完毕")
+        
+        // 移除这个特定的通知观察者
+        if let item = notification.object as? AVPlayerItem {
+            NotificationCenter.default.removeObserver(
+                self, name: .AVPlayerItemDidPlayToEndTime, object: item)
+        }
+        
+        // 检查当前状态：只有当AS是通过TM_Reveal过渡显示时，才在这里处理TM_Hide
+        // 否则，TM_Hide已经由playerItemDidReachEnd中的generateNextSequence处理了
+        if currentStateType != .playingTMReveal {
+            print("🔍 AS不是通过TM_Reveal显示的，TM_Hide已由playerItemDidReachEnd处理，跳过asPlaybackEnded的TM_Hide处理")
+            return
+        }
+        
+        print("🔍 AS是通过TM_Reveal显示的，在asPlaybackEnded中启动TM_Hide")
+        
+        // 设置状态为隐藏过渡
+        currentStateType = .transitioningToHalftoneHide
+        
+        // 检查是否有有效的lastTransitionNumber用于匹配TM_Hide
+        if let transitionNumber = self.lastTransitionNumber {
+            print("🔍 AS播放完成，使用保存的转场编号 \(transitionNumber) 来启动匹配的TM_Hide")
+            
+            // 找到匹配的TM_Hide并直接启动HEIC播放器
+            if let tmHide = findRandomClip(ofType: .TM_Hide, matchingNumber: transitionNumber) {
+                print("✅ 找到匹配的TM_Hide: \(tmHide.fileName)")
+                
+                // 直接播放TM_Hide，而不是通过队列系统
+                if self.heicSequencePlayer == nil {
+                    self.heicSequencePlayer = HEICSequencePlayer()
+                }
+                
+                guard let player = self.heicSequencePlayer else {
+                    print("❌ 错误：无法创建HEIC序列播放器")
+                    return
+                }
+                
+                let success = player.loadSequence(basePattern: tmHide.fileName)
+                if success {
+                    print("🎭 直接启动TM_Hide HEIC序列: \(tmHide.fileName)")
+                    isMasking = true
+                    
+                    // 设置遮罩并播放
+                    if let scene = self.scene,
+                       let maskNode = self.tmMaskSpriteNode,
+                       let mainVideoNode = self.videoNode,
+                       let cropNode = self.cropNode {
+                        
+                        // 确保AS内容在cropNode中
+                        if mainVideoNode.parent != cropNode {
+                            mainVideoNode.removeFromParent()
+                            mainVideoNode.position = .zero
+                            cropNode.addChild(mainVideoNode)
+                        }
+                        
+                        maskNode.size = scene.size
+                        maskNode.position = .zero
+                        cropNode.maskNode = maskNode
+                        
+                        player.play(on: maskNode) { [weak self] in
+                            DispatchQueue.main.async {
+                                self?.heicSequenceMaskCompleted(isRevealing: false, tmClip: tmHide, basePattern: tmHide.fileName)
+                            }
+                        }
+                        return
+                    }
+                } else {
+                    print("❌ 错误：无法加载TM_Hide HEIC序列")
+                }
+            } else {
+                print("❌ 错误：找不到匹配转场编号 \(transitionNumber) 的TM_Hide")
+            }
+        } else {
+            print("⚠️ AS播放完成，但没有保存的转场编号，随机生成一个用于初次播放")
+            
+            // 为初次AS播放随机生成转场编号
+            let availableTransitionNumbers = allClips.compactMap { clip in
+                guard clip.type == .TM_Hide else { return nil }
+                return clip.number
+            }.filter { $0 != "006" } // 排除有问题的006编号
+            
+            if let randomNumber = availableTransitionNumbers.randomElement() {
+                self.lastTransitionNumber = randomNumber
+                print("🎲 为初次AS播放随机生成转场编号: \(randomNumber)")
+                
+                // 使用生成的编号找到匹配的TM_Hide
+                if let tmHide = findRandomClip(ofType: .TM_Hide, matchingNumber: randomNumber) {
+                    print("✅ 找到匹配的TM_Hide: \(tmHide.fileName)")
+                    
+                    // 直接播放TM_Hide，而不是通过队列系统
+                    if self.heicSequencePlayer == nil {
+                        self.heicSequencePlayer = HEICSequencePlayer()
+                    }
+                    
+                    guard let player = self.heicSequencePlayer else {
+                        print("❌ 错误：无法创建HEIC序列播放器")
+                        return
+                    }
+                    
+                    let success = player.loadSequence(basePattern: tmHide.fileName)
+                    if success {
+                        print("🎭 直接启动TM_Hide HEIC序列: \(tmHide.fileName)")
+                        isMasking = true
+                        
+                        // 设置遮罩并播放
+                        if let scene = self.scene,
+                           let maskNode = self.tmMaskSpriteNode,
+                           let mainVideoNode = self.videoNode,
+                           let cropNode = self.cropNode {
+                            
+                            // 确保AS内容在cropNode中
+                            if mainVideoNode.parent != cropNode {
+                                mainVideoNode.removeFromParent()
+                                mainVideoNode.position = .zero
+                                cropNode.addChild(mainVideoNode)
+                            }
+                            
+                            maskNode.size = scene.size
+                            maskNode.position = .zero
+                            cropNode.maskNode = maskNode
+                            
+                            player.play(on: maskNode) { [weak self] in
+                                DispatchQueue.main.async {
+                                    self?.heicSequenceMaskCompleted(isRevealing: false, tmClip: tmHide, basePattern: tmHide.fileName)
+                                }
+                            }
+                            return
+                        }
+                    } else {
+                        print("❌ 错误：无法加载TM_Hide HEIC序列")
+                    }
+                } else {
+                    print("❌ 错误：找不到匹配转场编号 \(randomNumber) 的TM_Hide")
+                }
+            } else {
+                print("❌ 错误：无法找到可用的转场编号")
+            }
+        }
+        
+        // 如果直接启动TM_Hide失败，回退到存储的队列逻辑
+        print("🔄 回退到存储队列逻辑")
+        
+        // 如果有存储的后续片段，应该使用这些片段，而不是重新生成序列
+        if !nextAfterAS.isEmpty {
+            print("🎬 AS完成，使用存储的后续片段：\(nextAfterAS.map { $0.fileName }.joined(separator: ", "))")
+            
+            // 将后续片段设置为当前队列
+            currentClipsQueue = nextAfterAS
+            currentClipIndex = 0
+            nextAfterAS = []  // 清空存储，防止重复使用
+            
+            // 开始播放队列中的第一个片段（应该是TM_Hide）
+            playNextClipInQueue()
+        } else {
+            print("❌ 没有存储的后续片段，无法继续")
+            handleEndOfQueue()
+        }
+        
+        // 开始播放TM_Hide视频（现在使用HEIC序列播放器）
+        print("🎬 AS播放结束，TM_Hide将通过HEIC序列播放器处理")
+    }
+    
+    @objc private func ssOutroPlaybackEnded(_ notification: Notification) {
+        print("✅ SS_Outro视频播放完毕，延迟2秒后将开始播放TM_Hide")
+        
+        // 移除这个特定的通知观察者
+        if let item = notification.object as? AVPlayerItem {
+            NotificationCenter.default.removeObserver(
+                self, name: .AVPlayerItemDidPlayToEndTime, object: item)
+        }
+        
+        // 设置状态为隐藏过渡
+        currentStateType = .transitioningToHalftoneHide
+        
+        // 清除当前队列，防止TM_Hide播放时触发playerItemDidReachEnd
+        // 这样可以确保所有转场由maskPlayerItemDidReachEnd控制
+        if currentClipsQueue.count > 0 && currentClipIndex < currentClipsQueue.count {
+            print("🔄 SS结束，清除当前播放队列，等待TM_Hide完成")
+        }
+        
+        // 如果有存储的后续片段，应该使用这些片段，而不是重新生成序列
+        if !nextAfterAS.isEmpty {
+            print("🎬 SS完成，使用存储的后续片段：\(nextAfterAS.map { $0.fileName }.joined(separator: ", "))")
+            
+            // 确认nextAfterAS是否包含我们需要的片段
+            let hasAllRequiredTypes =
+            nextAfterAS.contains(where: { $0.type == .TM_Hide })
+            && nextAfterAS.contains(where: { $0.type == .ST_Hide })
+            && nextAfterAS.contains(where: { $0.type == .RPH })
+            && nextAfterAS.contains(where: { $0.type == .BP_Node })
+            
+            if !hasAllRequiredTypes {
+                print("⚠️ nextAfterAS不完整，缺少必要类型。重新生成队列。")
+                // 如果没有必要的类型，重新生成
+                if let finishedClip = findClipForPlayerItem(self.playerItem!) {
+                    print("📊 SS播放完成，重新生成下一个序列")
+                    generateNextSequence(basedOn: finishedClip)
+                }
+            } else {
+                // 将后续片段设置为当前队列
+                currentClipsQueue = nextAfterAS
+                currentClipIndex = 0
+                print("✅ 已设置下一个队列为存储的后续片段")
+            }
+            
+            // 清空存储，防止重复使用
+            nextAfterAS = []
+        } else if let finishedClip = findClipForPlayerItem(self.playerItem!) {
+            // 如果没有存储的后续片段，则通过常规方式生成下一个序列
+            print("📊 SS播放完成，预先生成下一个序列")
+            generateNextSequence(basedOn: finishedClip)
+            
+            // 打印生成的队列信息以便调试
+            print("🔍 Debug - 生成的新队列包含 \(currentClipsQueue.count) 个片段:")
+            for (index, clip) in currentClipsQueue.enumerated() {
+                print("  [\(index)]: \(clip.fileName) (\(clip.type))")
+            }
+            
+            // 特别检查：确保队列以TM_Hide开头，且包含ST_Hide、RPH和BP_Node
+            let isValidQueue =
+            currentClipsQueue.count >= 4 && currentClipsQueue[0].type == .TM_Hide
+            && currentClipsQueue[1].type == .ST_Hide && currentClipsQueue[2].type == .RPH
+            && currentClipsQueue[3].type == .BP_Node
+            
+            if !isValidQueue {
+                print("⚠️ 生成的队列不包含正确的序列。尝试修复队列。")
+                
+                // 尝试手动构建正确的队列
+                if let tmHide = findRandomClip(
+                    ofType: .TM_Hide, matchingNumber: lastTransitionNumber)
+                {
+                    print("✅ 找到TM_Hide: \(tmHide.fileName)")
+                    
+                    if let stHide = findMatchingST(for: tmHide, type: .ST_Hide) {
+                        print("✅ 找到ST_Hide: \(stHide.fileName)")
+                        
+                        if let randomRPH = findRandomClip(ofType: .RPH) {
+                            print("✅ 找到RPH: \(randomRPH.fileName)")
+                            
+                            if let targetBPNode = findClip(ofType: .BP_Node, nodeName: randomRPH.to)
+                            {
+                                print("✅ 找到BP_Node: \(targetBPNode.fileName)")
+                                
+                                currentClipsQueue = [tmHide, stHide, randomRPH, targetBPNode]
+                                currentClipIndex = 0
+                                print("✅ 修复队列成功")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        
+        // 开始播放TM_Hide视频（现在使用HEIC序列播放器）
+        print("🎬 SS播放结束，TM_Hide将通过HEIC序列播放器处理")
+    }
+    
+    private func generateNextSequence(basedOn finishedClip: SnoopyClip) {
+        print(
+            "📊 基于完成的片段生成下一个序列: \(finishedClip.fileName) (类型: \(finishedClip.type), 状态: \(currentStateType))"
+        )
+        var nextQueue: [SnoopyClip] = []
+        
+        switch finishedClip.type {
+        case .AS:
+            print("🎬 AS 完成。队列 Halftone 过渡。")
+            
+            let requiredNumber = self.lastTransitionNumber
+            print("🔍 Debug: lastTransitionNumber = \(requiredNumber ?? "nil")")
+            
+            guard let tmHide = findRandomClip(ofType: .TM_Hide, matchingNumber: requiredNumber)
+            else {
+                print("❌ Guard Failed: 找不到编号为 \(requiredNumber ?? "any") 的 TM_Hide")
+                // Don't reset lastTransitionNumber here, keep it for potential retry
+                break
+            }
+            
+            // Only reset lastTransitionNumber after successful finding of TM_Hide
+            self.lastTransitionNumber = nil
+            print("✅ Guard OK: Found TM_Hide: \(tmHide.fileName)")
+            
+            guard let stHide = findMatchingST(for: tmHide, type: .ST_Hide) else {
+                print("❌ Guard Failed: 找不到匹配 TM \(tmHide.number ?? "") 的 ST_Hide")
+                break
+            }
+            print("✅ Guard OK: Found ST_Hide: \(stHide.fileName)")
+            
+            guard let randomRPH = findRandomClip(ofType: .RPH) else {
+                print("❌ Guard Failed: 找不到随机 RPH")
+                break
+            }
+            print("✅ Guard OK: Found RPH: \(randomRPH.fileName) (to: \(randomRPH.to ?? "nil"))")
+            
+            guard let targetBPNode = findClip(ofType: .BP_Node, nodeName: randomRPH.to) else {
+                print(
+                    "❌ Guard Failed: 找不到 RPH \(randomRPH.fileName) 指向的 BP 节点 \(randomRPH.to ?? "nil")"
+                )
+                break
+            }
+            print("✅ Guard OK: Found Target BP_Node: \(targetBPNode.fileName)")
+            
+            // 检查是否已经存储了nextAfterAS，如果存储了就使用它
+            if !nextAfterAS.isEmpty {
+                print(
+                    "🎬 AS完成，使用已存储的后续片段: \(nextAfterAS.map { $0.fileName }.joined(separator: ", "))")
+                nextQueue = nextAfterAS
+                nextAfterAS = []  // 清空存储，防止重复使用
+            } else {
+                // 如果没有存储，使用刚生成的序列
+                nextQueue = [tmHide, stHide, randomRPH, targetBPNode]
+                print("🎬 AS完成，使用新生成的后续片段")
+            }
+            
+        case .BP_Node:
+            print("🎬 BP 节点完成循环。当前节点: \(currentNode ?? "nil"), 周期计数: \(bpCycleCount)")
+            currentStateType = .decidingNextHalftoneAction
+            
+            if bpCycleCount == 1 {
+                print("🔄 已完成 \(bpCycleCount) 个 BP 周期，随机选择 AS, SS 或 Halftone 序列。")
+                bpCycleCount = 0
+                
+                let choice = Double.random(in: 0..<1)
+                let asProbability = 0.9
+                let ssProbability = 0.0
+                
+                if choice < asProbability {
+                    print("  选择生成 AS 序列。")
+                    // 特殊处理：BP001有概率进入AS序列（使用固定006编号）
+                    if currentNode == "BP001" {
+                        print("🎯 BP001选择进入AS序列（使用固定006编号）")
+                        nextQueue = generateBP001ASSequence()
+                    } else {
+                        nextQueue = generateASSequence(fromNode: currentNode)
+                    }
+                } else if choice < asProbability + ssProbability {
+                    print("  选择生成 SS 序列。")
+                    nextQueue = generateSSSequenceNew(fromNode: currentNode)
+                } else {
+                    print("  选择生成 Halftone 转换序列 (继续)。")
+                    guard let nodeName = currentNode else {
+                        print("❌ 错误：BP_Node 完成时 currentNode 为 nil。回退。")
+                        nextQueue = generateFallbackSequence()
+                        break
+                    }
+                    let nextSequenceFileNames = SnoopyClip.generatePlaySequence(
+                        currentNode: nodeName, clips: allClips)
+                    nextQueue = nextSequenceFileNames.compactMap { findClip(byFileName: $0) }
+                    if nextQueue.isEmpty {
+                        print("⚠️ 未找到合适的 AP/CM/BP_To 转换。回退。")
+                        nextQueue = generateFallbackSequence()
+                    }
+                }
+            } else {
+                print("  周期数未达 5 的倍数 (当前: \(bpCycleCount))，选择下一个 Halftone 动作。")
+            
+                
+                guard let nodeName = currentNode else {
+                    print("❌ 错误：BP_Node 完成时 currentNode 为 nil。回退。")
+                    nextQueue = generateFallbackSequence()
+                    break
+                }
+                let nextSequenceFileNames = SnoopyClip.generatePlaySequence(
+                    currentNode: nodeName, clips: allClips)
+                nextQueue = nextSequenceFileNames.compactMap { findClip(byFileName: $0) }
+                if nextQueue.isEmpty {
+                    print("⚠️ 未找到合适的 AP/CM/BP_To 转换。回退。")
+                    nextQueue = generateFallbackSequence()
+                }
+            }
+            
+        case .AP_Outro, .CM, .BP_To, .RPH:
+            print("🎬 \(finishedClip.type) 完成。转到节点: \(finishedClip.to ?? "nil")")
+            
+            if finishedClip.type == .RPH {
+                // RPH完成，整个AS/SS → TM_Hide → ST_Hide → RPH序列结束，重置转场编号
+                print("🔄 RPH完成，重置lastTransitionNumber")
+                self.lastTransitionNumber = nil
+                
+                // 检查RPH是否在预构建的序列中（下一个应该是BP_Node）
+                if let nextClipInQueue = currentClipsQueue[safe: currentClipIndex + 1],
+                   nextClipInQueue.type == .BP_Node
+                {
+                    print("🎬 RPH (part of sequence) 完成。继续序列到 BP_Node: \(nextClipInQueue.fileName)")
+                    // 更新当前节点
+                    self.currentNode = finishedClip.to
+                    return
+                } else {
+                    // RPH不在预构建的序列中，需要生成新的BP_Node队列
+                    self.currentNode = finishedClip.to
+                    guard let targetBPNode = findClip(ofType: .BP_Node, nodeName: self.currentNode)
+                    else {
+                        print("❌ 错误：找不到目标 BP 节点 \(self.currentNode ?? "nil")。回退。")
+                        nextQueue = generateFallbackSequence()
+                        break
+                    }
+                    print("✅ RPH 完成，队列目标 BP 节点: \(targetBPNode.fileName)")
+                    nextQueue = [targetBPNode]
+                    bpCycleCount += 1
+                    print("🔄 增加 BP 周期计数至: \(bpCycleCount)")
+                }
+            } else if finishedClip.type == .BP_To {
+                if finishedClip.to?.starts(with: "RPH") ?? false {
+                    if let nextClipInQueue = currentClipsQueue[safe: currentClipIndex + 1],
+                       nextClipInQueue.type == .ST_Reveal
+                    {
+                        print("🎬 BP_To_RPH (part of AS sequence) 完成。继续序列 (ST_Reveal)。")
+                        
+                        // 清除所有存储的跳转后序列，防止循环
+                        if !nextAfterAS.isEmpty {
+                            print("⚠️ BP_To_RPH序列开始，清除已存储的nextAfterAS防止循环")
+                            nextAfterAS = []
+                        }
+                        return
+                    } else {
+                        guard let randomRPH = findRandomClip(ofType: .RPH) else {
+                            print("❌ 错误：找不到任何 RPH 片段来处理 BP_To_RPH 完成。回退。")
+                            nextQueue = generateFallbackSequence()
+                            break
+                        }
+                        print("✅ BP_To_RPH 完成，队列随机 RPH: \(randomRPH.fileName)")
+                        nextQueue = [randomRPH]
+                    }
+                } else {
+                    self.currentNode = finishedClip.to
+                    guard let targetBPNode = findClip(ofType: .BP_Node, nodeName: self.currentNode)
+                    else {
+                        print("❌ 错误：找不到目标 BP 节点 \(self.currentNode ?? "nil")。回退。")
+                        nextQueue = generateFallbackSequence()
+                        break
+                    }
+                    print("✅ BP_To_BP 完成，队列目标 BP 节点: \(targetBPNode.fileName)")
+                    nextQueue = [targetBPNode]
+                    bpCycleCount += 1
+                    print("🔄 增加 BP 周期计数至: \(bpCycleCount)")
+                }
+            } else {
+                // 处理其他类型(.AP_Outro, .CM)
+                self.currentNode = finishedClip.to
+                guard let targetBPNode = findClip(ofType: .BP_Node, nodeName: self.currentNode)
+                else {
+                    print("❌ 错误：找不到目标 BP 节点 \(self.currentNode ?? "nil")。回退。")
+                    nextQueue = generateFallbackSequence()
+                    break
+                }
+                print("✅ \(finishedClip.type) 完成，队列目标 BP 节点: \(targetBPNode.fileName)")
+                nextQueue = [targetBPNode]
+                bpCycleCount += 1
+                print("🔄 增加 BP 周期计数至: \(bpCycleCount)")
+            }
+            
+        case .ST_Hide, .ST_Reveal:
+            print("🎬 \(finishedClip.type) 完成。继续序列。")
+            return
+            
+        case .TM_Hide:
+            print("🎬 TM_Hide 完成。生成 ST_Hide → RPH → BP_Node 序列。")
+            
+            guard let transitionNumber = finishedClip.number else {
+                print("❌ Guard Failed: TM_Hide 没有有效的转场编号")
+                break
+            }
+            
+            guard let stHide = findMatchingST(forNumber: transitionNumber, type: .ST_Hide) else {
+                print("❌ Guard Failed: 找不到匹配 TM \(transitionNumber) 的 ST_Hide")
+                break
+            }
+            print("✅ Guard OK: Found ST_Hide: \(stHide.fileName)")
+
+            guard let randomRPH = findRandomClip(ofType: .RPH) else {
+                print("❌ Guard Failed: 找不到随机 RPH")
+                break
+            }
+            print("✅ Guard OK: Found RPH: \(randomRPH.fileName) (to: \(randomRPH.to ?? "nil"))")
+
+            guard let targetBPNode = findClip(ofType: .BP_Node, nodeName: randomRPH.to) else {
+                print(
+                    "❌ Guard Failed: 找不到 RPH \(randomRPH.fileName) 指向的 BP 节点 \(randomRPH.to ?? "nil")"
+                )
+                break
+            }
+            print("✅ Guard OK: Found Target BP_Node: \(targetBPNode.fileName)")
+            
+            nextQueue = [stHide, randomRPH, targetBPNode]
+            print("🎬 TM_Hide完成，使用新生成的序列: \(nextQueue.map { $0.fileName }.joined(separator: ", "))")
+            
+        case .TM_Reveal:
+            print("❌ 错误：TM 片段在主播放器序列生成中完成。")
+            break
+            
+        case .SS_Outro:
+            print("🎬 SS 完成。队列 Halftone 过渡。")
+            
+            let requiredNumber = self.lastTransitionNumber
+            print("🔍 Debug: lastTransitionNumber = \(requiredNumber ?? "nil")")
+            
+            guard let tmHide = findRandomClip(ofType: .TM_Hide, matchingNumber: requiredNumber)
+            else {
+                print("❌ Guard Failed: 找不到编号为 \(requiredNumber ?? "any") 的 TM_Hide")
+                // Don't reset lastTransitionNumber here, keep it for potential retry
+                break
+            }
+            
+            // Only reset lastTransitionNumber after successful finding of TM_Hide
+            self.lastTransitionNumber = nil
+            print("✅ Guard OK: Found TM_Hide: \(tmHide.fileName)")
+            
+            guard let stHide = findMatchingST(for: tmHide, type: .ST_Hide) else {
+                print("❌ Guard Failed: 找不到匹配 TM \(tmHide.number ?? "") 的 ST_Hide")
+                break
+            }
+            print("✅ Guard OK: Found ST_Hide: \(stHide.fileName)")
+            
+            guard let randomRPH = findRandomClip(ofType: .RPH) else {
+                print("❌ Guard Failed: 找不到随机 RPH")
+                break
+            }
+            print("✅ Guard OK: Found RPH: \(randomRPH.fileName) (to: \(randomRPH.to ?? "nil"))")
+            
+            guard let targetBPNode = findClip(ofType: .BP_Node, nodeName: randomRPH.to) else {
+                print(
+                    "❌ Guard Failed: 找不到 RPH \(randomRPH.fileName) 指向的 BP 节点 \(randomRPH.to ?? "nil")"
+                )
+                break
+            }
+            print("✅ Guard OK: Found Target BP_Node: \(targetBPNode.fileName)")
+            
+            // 检查是否已经存储了nextAfterAS，如果存储了就使用它
+            if !nextAfterAS.isEmpty {
+                print(
+                    "🎬 SS完成，使用已存储的后续片段: \(nextAfterAS.map { $0.fileName }.joined(separator: ", "))")
+                nextQueue = nextAfterAS
+                nextAfterAS = []  // 清空存储，防止重复使用
+            } else {
+                // 如果没有存储，使用刚生成的序列
+                nextQueue = [tmHide, stHide, randomRPH, targetBPNode]
+                print("🎬 SS完成，使用新生成的后续片段")
+            }
+            
+        case .SS_Intro, .SS_Loop, .AP_Intro, .AP_Loop:
+            print("🎬 \(finishedClip.type) 完成。继续序列。")
+            return
+            
+        default:
+            print("⚠️ 未处理的片段类型完成: \(finishedClip.type)。使用随机 AS 重新开始。")
+            nextQueue = generateFallbackSequence()
+            bpCycleCount = 0
+        }
+        
+        if !nextQueue.isEmpty {
+            print("✅ 生成新队列，包含 \(nextQueue.count) 个片段。")
+            self.currentClipsQueue = nextQueue
+            self.currentClipIndex = -1
+        } else if finishedClip.type != .ST_Hide && finishedClip.type != .ST_Reveal
+                    && finishedClip.type != .RPH && finishedClip.type != .SS_Outro
+                    && finishedClip.type != .SS_Intro && finishedClip.type != .SS_Loop
+                    && finishedClip.type != .AP_Intro && finishedClip.type != .AP_Loop
+        {
+            print(
+                "❌ 无法为 \(finishedClip.fileName) 生成下一个序列。处理队列结束。"
+            )
+            handleEndOfQueue()
+        }
+    }
+    
+    private func handleEndOfQueue() {
+        print(
+            "❌ 意外到达队列末尾或序列生成失败。回退到随机 BP_Node。"
+        )
+        queuePlayer?.pause()
+        queuePlayer?.removeAllItems()
+        let fallbackQueue = generateFallbackSequence()
+        if !fallbackQueue.isEmpty {
+            self.currentClipsQueue = fallbackQueue
+            self.currentClipIndex = 0
+            playNextClipInQueue()
+        } else {
+            print("❌ 严重错误：无法生成回退队列！停止播放。")
+        }
+    }
+    
+    // MARK: - Sequence Generation Helpers
+    
+    private func generateASSequence(fromNode: String? = nil) -> [SnoopyClip] {
+        var sequence: [SnoopyClip] = []
+        var transitionNumber: String? = nil
+        
+        if let nodeName = fromNode {
+            let bpToRphCandidates = allClips.filter { clip in
+                guard clip.type == .BP_To, clip.to?.starts(with: "RPH") ?? false else {
+                    return false
+                }
+                let pattern = "_BP\(nodeName.suffix(3))_To_"
+                return clip.fileName.contains(pattern)
+            }
+            
+            if let bpToRph = bpToRphCandidates.randomElement() {
+                print("  Prepending BP_To_RPH: \(bpToRph.fileName) to AS sequence.")
+                sequence.append(bpToRph)
+            } else {
+                print(
+                    "⚠️ Warning: Could not find BP_To_RPH for node \(nodeName) to prepend to AS sequence."
+                )
+            }
+        }
+        
+        guard let randomTMReveal = findRandomClip(ofType: .TM_Reveal) else {
+            print("❌ Error: Could not find random TM_Reveal for AS sequence.")
+            return generateFallbackSequence()
+        }
+        transitionNumber = randomTMReveal.number
+        print(
+            "  Selected TM_Reveal: \(randomTMReveal.fileName) (Number: \(transitionNumber ?? "nil"))"
+        )
+        
+        guard let matchingSTReveal = findMatchingST(for: randomTMReveal, type: .ST_Reveal) else {
+            print(
+                "❌ Error: Could not find matching ST_Reveal for TM number \(transitionNumber ?? "nil")."
+            )
+            return generateFallbackSequence()
+        }
+        print("  Selected ST_Reveal: \(matchingSTReveal.fileName)")
+        
+        guard let randomAS = findRandomClip(ofType: .AS) else {
+            print("❌ Error: Could not find random AS clip.")
+            return generateFallbackSequence()
+        }
+        print("  Selected AS: \(randomAS.fileName)")
+        
+        // 在此存储转场编号，以便AS播放完成后可以找到匹配的TM_Hide
+        self.lastTransitionNumber = transitionNumber
+        print("💾 Stored lastTransitionNumber: \(self.lastTransitionNumber ?? "nil")")
+        
+        // 找到匹配的TM_Hide，但不加入序列 - 这将在AS播放完成时使用
+        guard let tmHide = findRandomClip(ofType: .TM_Hide, matchingNumber: transitionNumber)
+        else {
+            print("❌ Guard Failed: 找不到编号为 \(transitionNumber ?? "any") 的 TM_Hide")
+            return generateFallbackSequence()
+        }
+        print("✅ Guard OK: Found TM_Hide: \(tmHide.fileName) - 将在AS完成后使用")
+        
+        guard let stHide = findMatchingST(for: tmHide, type: .ST_Hide) else {
+            print("❌ Guard Failed: 找不到匹配 TM \(tmHide.number ?? "") 的 ST_Hide")
+            return generateFallbackSequence()
+        }
+        print("✅ Guard OK: Found ST_Hide: \(stHide.fileName) - 将在TM_Hide完成后使用")
+        
+        guard let randomRPH = findRandomClip(ofType: .RPH) else {
+            print("❌ Guard Failed: 找不到随机 RPH")
+            return generateFallbackSequence()
+        }
+        print("✅ Guard OK: Found RPH: \(randomRPH.fileName) (to: \(randomRPH.to ?? "nil"))")
+        
+        guard let targetBPNode = findClip(ofType: .BP_Node, nodeName: randomRPH.to) else {
+            print(
+                "❌ Guard Failed: 找不到 RPH \(randomRPH.fileName) 指向的 BP 节点 \(randomRPH.to ?? "nil")")
+            return generateFallbackSequence()
+        }
+        print("✅ Guard OK: Found Target BP_Node: \(targetBPNode.fileName)")
+        
+        // 关键修改: 序列中只包含ST_Reveal, TM_Reveal和AS
+        // 其他部分(TM_Hide, ST_Hide, RPH, BP_Node)将在AS播放完成后单独处理
+        sequence += [matchingSTReveal, randomTMReveal, randomAS]
+        
+        // 为后续使用存储需要播放的部分
+        nextAfterAS = [tmHide, stHide, randomRPH, targetBPNode]
+        
+        print(
+            "✅ Generated AS sequence with \(sequence.count) clips. Stored \(nextAfterAS.count) clips for after AS."
+        )
+        return sequence
+    }
+    
+    private func generateBP001ASSequence() -> [SnoopyClip] {
+        var sequence: [SnoopyClip] = []
+        let fixedTransitionNumber: String = "006"  // 固定使用006编号
+        
+        print("🎯 生成BP001专用AS序列，使用固定转场编号: \(fixedTransitionNumber)")
+        
+        // 找到编号为006的TM_Reveal
+        guard let tmReveal006 = findRandomClip(ofType: .TM_Reveal, matchingNumber: fixedTransitionNumber) else {
+            print("❌ Error: 找不到编号为006的TM_Reveal")
+            return generateFallbackSequence()
+        }
+        print("✅ 找到TM_Reveal: \(tmReveal006.fileName)")
+        
+        // 随机选择AS片段
+        guard let randomAS = findRandomClip(ofType: .AS) else {
+            print("❌ Error: 找不到AS片段")
+            return generateFallbackSequence()
+        }
+        print("✅ 找到AS: \(randomAS.fileName)")
+        
+        // 存储转场编号，用于AS播放完成后找到匹配的TM_Hide
+        self.lastTransitionNumber = fixedTransitionNumber
+        print("💾 存储转场编号: \(self.lastTransitionNumber ?? "nil")")
+        
+        // 找到编号为006的TM_Hide
+        guard let tmHide006 = findRandomClip(ofType: .TM_Hide, matchingNumber: fixedTransitionNumber) else {
+            print("❌ Error: 找不到编号为006的TM_Hide")
+            return generateFallbackSequence()
+        }
+        print("✅ 找到TM_Hide: \(tmHide006.fileName)")
+        
+        // 找到匹配的ST_Hide (A或B变体)
+        guard let stHide = findMatchingST(for: tmHide006, type: .ST_Hide) else {
+            print("❌ Error: 找不到匹配006编号的ST_Hide")
+            return generateFallbackSequence()
+        }
+        print("✅ 找到ST_Hide: \(stHide.fileName) (变体: \(stHide.variant ?? "default"))")
+        
+        // 随机选择RPH
+        guard let randomRPH = findRandomClip(ofType: .RPH) else {
+            print("❌ Error: 找不到RPH片段")
+            return generateFallbackSequence()
+        }
+        print("✅ 找到RPH: \(randomRPH.fileName) (to: \(randomRPH.to ?? "nil"))")
+        
+        // 找到目标BP节点
+        guard let targetBPNode = findClip(ofType: .BP_Node, nodeName: randomRPH.to) else {
+            print("❌ Error: 找不到RPH指向的BP节点 \(randomRPH.to ?? "nil")")
+            return generateFallbackSequence()
+        }
+        print("✅ 找到目标BP节点: \(targetBPNode.fileName)")
+        
+        // 构建序列 TM_Reveal -> AS
+        sequence = [tmReveal006, randomAS]
+        
+        // 存储后续片段：TM_Hide -> ST_Hide -> RPH -> BP_Node
+        nextAfterAS = [tmHide006, stHide, randomRPH, targetBPNode]
+        
+        print("🎯 BP001 AS序列生成完成: \(sequence.count)个片段，后续\(nextAfterAS.count)个片段")
+        print("  序列: \(sequence.map { $0.fileName }.joined(separator: " -> "))")
+        print("  后续: \(nextAfterAS.map { $0.fileName }.joined(separator: " -> "))")
+        
+        return sequence
+    }
+    
+    private func generateSSSequenceNew(fromNode: String? = nil) -> [SnoopyClip] {
+        var sequence: [SnoopyClip] = []
+        let transitionNumber: String? = "001"
+        
+        if let nodeName = fromNode {
+            let bpToRphCandidates = allClips.filter { clip in
+                guard clip.type == .BP_To, clip.to?.starts(with: "RPH") ?? false else {
+                    return false
+                }
+                let pattern = "_BP\(nodeName.suffix(3))_To_"
+                return clip.fileName.contains(pattern)
+            }
+            
+            if let bpToRph = bpToRphCandidates.randomElement() {
+                print("  Prepending BP_To_RPH: \(bpToRph.fileName) to SS sequence.")
+                sequence.append(bpToRph)
+            } else {
+                print(
+                    "⚠️ Warning: Could not find BP_To_RPH for node \(nodeName) to prepend to SS sequence."
+                )
+            }
+        }
+        
+        // 先找到需要的ST_Reveal对应的"001"编号
+        guard let matchingSTReveal = findMatchingST(forNumber: transitionNumber, type: .ST_Reveal)
+        else {
+            print(
+                "❌ Error: Could not find matching ST_Reveal for TM number \(transitionNumber ?? "nil")."
+            )
+            return generateFallbackSequence()
+        }
+        print("  Selected ST_Reveal: \(matchingSTReveal.fileName)")
+        
+        // 找到SS序列的三部分：Intro, Loop, Outro
+        guard let ssIntro = findRandomClip(ofType: .SS_Intro) else {
+            print("❌ Error: Could not find random ssIntro.")
+            return generateFallbackSequence()
+        }
+        print("  Selected ssIntro: \(ssIntro.fileName)")
+        
+        guard let ssLoop = findRandomClip(ofType: .SS_Loop) else {
+            print("❌ Error: Could not find random ssLoop.")
+            return generateFallbackSequence()
+        }
+        print("  Selected ssLoop: \(ssLoop.fileName)")
+        
+        guard let ssOutro = findRandomClip(ofType: .SS_Outro) else {
+            print("❌ Error: Could not find random ssOutro.")
+            return generateFallbackSequence()
+        }
+        print("  Selected ssOutro: \(ssOutro.fileName)")
+        
+        // 存储编号，用于找到匹配的TM_Hide
+        self.lastTransitionNumber = transitionNumber
+        print("💾 Stored lastTransitionNumber: \(self.lastTransitionNumber ?? "nil")")
+        
+        print("🎬 SS 序列生成。规划SS完成后的Halftone过渡。")
+        
+        // 预先生成SS完成后需要播放的片段序列
+        guard let tmHide = findRandomClip(ofType: .TM_Hide, matchingNumber: transitionNumber)
+        else {
+            print("❌ Guard Failed: 找不到编号为 \(transitionNumber ?? "any") 的 TM_Hide")
+            return generateFallbackSequence()
+        }
+        print("✅ Guard OK: Found TM_Hide: \(tmHide.fileName) - 将在SS完成后使用")
+        
+        guard let stHide = findMatchingST(for: tmHide, type: .ST_Hide) else {
+            print("❌ Guard Failed: 找不到匹配 TM \(tmHide.number ?? "") 的 ST_Hide")
+            return generateFallbackSequence()
+        }
+        print("✅ Guard OK: Found ST_Hide: \(stHide.fileName) - 将在TM_Hide完成后使用")
+        
+        guard let randomRPH = findRandomClip(ofType: .RPH) else {
+            print("❌ Guard Failed: 找不到随机 RPH")
+            return generateFallbackSequence()
+        }
+        print("✅ Guard OK: Found RPH: \(randomRPH.fileName) (to: \(randomRPH.to ?? "nil"))")
+        
+        guard let targetBPNode = findClip(ofType: .BP_Node, nodeName: randomRPH.to) else {
+            print(
+                "❌ Guard Failed: 找不到 RPH \(randomRPH.fileName) 指向的 BP 节点 \(randomRPH.to ?? "nil")")
+            return generateFallbackSequence()
+        }
+        print("✅ Guard OK: Found Target BP_Node: \(targetBPNode.fileName)")
+        
+        // 当前序列只包括ST_Reveal和SS三部分
+        sequence += [matchingSTReveal, ssIntro, ssLoop, ssOutro]
+        
+        // 为后续使用存储需要播放的部分 - 这将在SS_Outro播放完成后的延迟结束时使用
+        nextAfterAS = [tmHide, stHide, randomRPH, targetBPNode]
+        
+        print(
+            "✅ Generated SS sequence with \(sequence.count) clips. Stored \(nextAfterAS.count) clips for after SS_Outro."
+        )
+        return sequence
+    }
+    
+    private func generateFallbackSequence() -> [SnoopyClip] {
+        print("⚠️ 生成回退序列 (随机 BP_Node)。")
+        guard let randomBPNode = findRandomClip(ofType: .BP_Node) else {
+            print("❌ 严重错误：无法找到任何 BP_Node 片段进行回退！")
+            return []
+        }
+        bpCycleCount = 0
+        lastTransitionNumber = nil
+        currentNode = randomBPNode.node
+        print("  回退到: \(randomBPNode.fileName)")
+        return [randomBPNode]
+    }
+    
+    // MARK: - Clip Finding Helpers
+    
+    private func findClip(byFileName fileName: String) -> SnoopyClip? {
+        return allClips.first { $0.fileName == fileName }
+    }
+    
+    private func findClip(
+        ofType type: SnoopyClip.ClipType, nodeName: String? = nil, groupID: String? = nil
+    ) -> SnoopyClip? {
+        return allClips.first { clip in
+            var match = clip.type == type
+            if let targetNodeName = nodeName {
+                match =
+                match
+                && (clip.node == targetNodeName || clip.from == targetNodeName
+                    || clip.to == targetNodeName)
+            }
+            if let group = groupID {
+                match = match && clip.groupID == group
+            }
+            return match
+        }
+    }
+    
+    private func findRandomClip(ofType type: SnoopyClip.ClipType, matchingNumber: String? = nil)
+    -> SnoopyClip?
+    {
+        let candidates = allClips.filter { $0.type == type }
+        
+        // Add debugging for TM clips
+        if type == .TM_Hide || type == .TM_Reveal {
+            print("🔍 Debug TM clips:")
+            for clip in candidates {
+                print("  - \(clip.fileName) (number: \(clip.number ?? "nil"))")
+            }
+        }
+        
+        if let number = matchingNumber {
+            let filteredByNumber = candidates.filter { $0.number == number }
+            if !filteredByNumber.isEmpty {
+                print("🔍 找到匹配编号 \(number) 的 \(type) 片段。")
+                return filteredByNumber.randomElement()
+            } else {
+                print("⚠️ 警告: 未找到编号为 \(number) 的 \(type) 片段，将随机选择。")
+                print("🔍 Available candidates: \(candidates.map { "\($0.fileName)(num:\($0.number ?? "nil"))" })")
+                
+                // 对于TM类型，随机选择时排除006编号
+                if type == .TM_Hide || type == .TM_Reveal {
+                    let filteredCandidates = candidates.filter { $0.number != "006" }
+                    if !filteredCandidates.isEmpty {
+                        print("🔍 排除006编号后，从 \(filteredCandidates.count) 个候选中随机选择")
+                        return filteredCandidates.randomElement()
+                    } else {
+                        print("⚠️ 排除006后没有可用的TM片段，使用原始候选")
+                        return candidates.randomElement()
+                    }
+                } else {
+                    return candidates.randomElement()
+                }
+            }
+        } else {
+            // 对于TM类型，随机选择时排除006编号
+            if type == .TM_Hide || type == .TM_Reveal {
+                let filteredCandidates = candidates.filter { $0.number != "006" }
+                if !filteredCandidates.isEmpty {
+                    print("🔍 排除006编号后，从 \(filteredCandidates.count) 个TM候选中随机选择")
+                    return filteredCandidates.randomElement()
+                } else {
+                    print("⚠️ 排除006后没有可用的TM片段，使用原始候选")
+                    return candidates.randomElement()
+                }
+            } else {
+                return candidates.randomElement()
+            }
+        }
+    }
+    
+    private func findMatchingST(
+        for tmClip: SnoopyClip? = nil, forNumber number: String? = nil, type: SnoopyClip.ClipType
+    ) -> SnoopyClip? {
+        guard type == .ST_Hide || type == .ST_Reveal else { return nil }
+        let targetNumber = tmClip?.number ?? number
+        guard let num = targetNumber else { return nil }
+        
+        let matchingSTs = allClips.filter { $0.type == type && $0.number == num }
+        
+        if matchingSTs.isEmpty {
+            print("⚠️ 警告：未找到匹配的 \(type) 片段，编号为 \(num)")
+            return nil
+        }
+        
+        let variants = matchingSTs.filter { $0.variant != nil }
+        if !variants.isEmpty {
+            return variants.randomElement()
+        } else {
+            return matchingSTs.first
+        }
+    }
+    
+    private func findClipForPlayerItem(_ item: AVPlayerItem) -> SnoopyClip? {
+        guard let url = (item.asset as? AVURLAsset)?.url else { return nil }
+        return allClips.first { clip in
+            if let clipUrl = Bundle(for: type(of: self)).url(
+                forResource: clip.fileName, withExtension: nil)
+            {
+                return clipUrl == url
+            }
+            return false
+        }
+    }
+    
+    // MARK: - Background Update Functions
+    
+    private func updateBackgrounds() {
+        print("🔄 更新背景...")
+        
+        // 检查并确保半色调层可见
+        if let halftoneNode = self.halftoneNode {
+            halftoneNode.alpha = 0.3  // 设置适当的透明度
+        }
+        
+        updateBackgroundColor()
+        updateBackgroundImage()
+    }
+    
+    private func updateBackgroundColor() {
+        guard let bgNode = self.backgroundColorNode else { return }
+        let randomColor = colors.randomElement() ?? .black
+        bgNode.color = randomColor
+        bgNode.alpha = 1  // 显示背景颜色
+        print("🎨 背景颜色更新为: \(randomColor)")
+    }
+    
+    private func updateBackgroundImage() {
+        guard let imageNode = self.backgroundImageNode, !backgroundImages.isEmpty else { return }
+        
+        let randomImageName = backgroundImages.randomElement()!
+        guard
+            let imagePath = Bundle(for: type(of: self)).path(
+                forResource: randomImageName, ofType: nil),
+            let image = NSImage(contentsOfFile: imagePath)
+        else {
+            print("❌ 无法加载背景图片: \(randomImageName)")
+            return
+        }
+        
+        let texture = SKTexture(image: image)
+        imageNode.texture = texture
+        
+        guard let scene = self.scene else { return }
+        
+        let imageAspect = image.size.height / scene.size.height
+        guard imageAspect > 0 else {
+            print("❌ 错误: IS 图片高度或场景高度为零，无法计算 imageAspect。")
+            return
+        }
+        imageNode.size = CGSize(
+            width: image.size.width / imageAspect * scale,
+            height: scene.size.height * scale)
+        imageNode.position = CGPoint(
+            x: scene.size.width / 2,
+            y: scene.size.height / 2 - scene.size.height * offside)
+        imageNode.alpha = 1  // 显示背景图片
+        
+        print("🖼️ 背景图片更新为: \(randomImageName)")
+    }
+    
+    // MARK: - Overlay (VI/WE) Functions
+    
+    private func tryPlayVIWEOverlay() {
+        guard overlayPlayerItem == nil else {
+            print("🚫 叠加层已在播放，跳过新的触发。")
+            return
+        }
+        
+        let viClips = allClips.filter { $0.type == .VI_Single || $0.type == .VI_Intro }
+        let weClips = allClips.filter { $0.type == .WE_Single || $0.type == .WE_Intro }
+        let candidates = viClips + weClips
+        
+        guard let clipToPlay = candidates.randomElement() else {
+            print("🤷 没有可用的 VI/WE 片段可供播放。")
+            return
+        }
+        
+        print("✨ 触发叠加效果: \(clipToPlay.fileName)")
+        playOverlayClip(clipToPlay)
+    }
+    
+    private func playOverlayClip(_ clip: SnoopyClip) {
+        guard
+            let url = Bundle(for: type(of: self)).url(
+                forResource: clip.fileName, withExtension: nil)
+        else {
+            print("❌ 错误：找不到叠加片段文件 \(clip.fileName)")
+            cleanupOverlay()
+            return
+        }
+        
+        let newItem = AVPlayerItem(url: url)
+        self.overlayPlayerItem = newItem
+        
+        // 不再需要设置overlayRepeatCount，Loop的继续由主序列状态决定
+        self.overlayRepeatCount = 0
+        print("📽️ 播放叠加片段: \(clip.fileName)，Loop控制由主序列状态决定")
+        
+        overlayPlayer?.removeAllItems()
+        overlayPlayer?.insert(newItem, after: nil)
+        overlayNode?.isHidden = false
+        overlayPlayer?.play()
+        print("▶️ 播放叠加片段: \(clip.fileName)")
+    }
+    
+    private func cleanupOverlay() {
+        print("🧹 清理叠加层。")
+        overlayPlayer?.pause()
+        overlayPlayer?.removeAllItems()
+        overlayPlayerItem = nil
+        overlayNode?.isHidden = true
+        overlayRepeatCount = 0
+    }
+    
+    private func isCurrentlyInBPCycle() -> Bool {
+        // 检查主序列是否仍在BP循环状态中
+        let isBPLooping = (currentStateType == .playingBP || currentStateType == .playingAPLoop)
+        
+        // 额外检查：如果当前队列中包含正在循环的BP_Node或AP_Loop
+        let hasLoopingClip = currentClipIndex < currentClipsQueue.count &&
+        (currentClipsQueue[currentClipIndex].type == .BP_Node ||
+         currentClipsQueue[currentClipIndex].type == .AP_Loop) &&
+        currentRepeatCount > 0
+        
+        let result = isBPLooping || hasLoopingClip
+        print("🔍 isCurrentlyInBPCycle: \(result) (状态: \(currentStateType), 重复次数: \(currentRepeatCount))")
+        return result
+    }
+    
+    private func handleOverlayItemFinish(finishedItem: AVPlayerItem) {
+        print("✅ 叠加片段播放完成。")
+        
+        var lastPlayedClip: SnoopyClip? = nil
+        if let finishedUrl = (finishedItem.asset as? AVURLAsset)?.url {
+            lastPlayedClip = allClips.first(where: { clip in
+                if let clipUrl = Bundle(for: type(of: self)).url(
+                    forResource: clip.fileName, withExtension: nil)
+                {
+                    return clipUrl == finishedUrl
+                }
+                return false
+            })
+        }
+        
+        guard let finishedClip = lastPlayedClip else {
+            print("❌ 无法找到完成的叠加项目的 SnoopyClip。清理。")
+            cleanupOverlay()
+            return
+        }
+        
+        print("🔍 完成的overlay片段: \(finishedClip.fileName) (类型: \(finishedClip.type), groupID: \(finishedClip.groupID ?? "nil"))")
+        print("🔍 主序列状态: \(currentStateType)")
+        
+        var nextOverlayClip: SnoopyClip? = nil
+        let groupID = finishedClip.groupID
+        
+        if finishedClip.type == SnoopyClip.ClipType.VI_Intro
+            || finishedClip.type == SnoopyClip.ClipType.WE_Intro
+        {
+            let loopType: SnoopyClip.ClipType =
+            (finishedClip.type == .VI_Intro) ? .VI_Loop : .WE_Loop
+            nextOverlayClip = findClip(ofType: loopType, groupID: groupID)
+            if let nextClip = nextOverlayClip {
+                print("✅ 叠加 Intro 完成，队列 Loop: \(nextClip.fileName)")
+            } else {
+                print(
+                    "❌ 叠加 Intro 完成，但未找到组 \(groupID ?? "nil") 的 Loop。清理。"
+                )
+            }
+        } else if finishedClip.type == SnoopyClip.ClipType.VI_Loop
+                    || finishedClip.type == SnoopyClip.ClipType.WE_Loop
+        {
+            // 检查主序列是否仍在BP循环中，而不是使用overlayRepeatCount
+            if isCurrentlyInBPCycle() {
+                // 主序列仍在BP循环中，继续播放Loop
+                nextOverlayClip = finishedClip
+                print("🔁 叠加 Loop 完成，主序列仍在BP循环中，继续播放Loop")
+            } else {
+                // 主序列已退出BP循环，强制进入Outro
+                let outroType: SnoopyClip.ClipType =
+                (finishedClip.type == .VI_Loop) ? .VI_Outro : .WE_Outro
+                nextOverlayClip = findClip(ofType: outroType, groupID: groupID)
+                print(
+                    "✅ 叠加 Loop 完成，主序列已退出BP循环，强制进入Outro: \(nextOverlayClip?.fileName ?? "未找到")"
+                )
+            }
+        }
+        
+        if let nextClip = nextOverlayClip {
+            playOverlayClip(nextClip)
+        } else {
+            print(
+                "✅ 叠加序列完成或未找到组 \(groupID ?? "nil") 的下一个片段。清理。"
+            )
+            cleanupOverlay()
+        }
+    }
+    
+    private func interruptOverlayLoopAndPlayOutro(groupID: String) {
+        print("💥 请求中断overlay Loop，groupID: \(groupID)")
+        
+        let outroType: SnoopyClip.ClipType?
+        if findClip(ofType: .VI_Loop, groupID: groupID) != nil {
+            outroType = .VI_Outro
+        } else if findClip(ofType: .WE_Loop, groupID: groupID) != nil {
+            outroType = .WE_Outro
+        } else {
+            outroType = nil
+        }
+        
+        guard let type = outroType, let outroClip = findClip(ofType: type, groupID: groupID) else {
+            print("⚠️ 无法找到组 \(groupID) 的 Outro 来打断 Loop。")
+            cleanupOverlay()
+            return
+        }
+        
+        print("💥 打断叠加 Loop，播放 Outro: \(outroClip.fileName)")
+        overlayRepeatCount = 0  // 重置重复计数，强制结束Loop
+        playOverlayClip(outroClip)
+    }
+    
+    // MARK: - Masking Functions
+    
+    private func startMaskTransitionWithHEIC(basePattern: String, tmClip: SnoopyClip, contentClip: SnoopyClip?, isRevealing: Bool) {
+        print("🎭 开始HEIC遮罩过渡: \(basePattern), TM片段: \(tmClip.fileName), 显示: \(isRevealing)")
+        guard let scene = self.scene else {
+            print("❌ 错误：HEIC遮罩过渡缺少场景组件。")
+            currentClipIndex += 1
+            playNextClipInQueue()
+            return
+        }
+        
+        isMasking = true
+        
+        // 创建mask sprite node如果不存在
+        if self.tmMaskSpriteNode == nil {
+            let maskNode = SKSpriteNode(color: .clear, size: scene.size)
+            maskNode.position = .zero  // 相对于cropNode的位置
+            self.tmMaskSpriteNode = maskNode
+        }
+        
+        guard let maskNode = self.tmMaskSpriteNode,
+              let mainVideoNode = self.videoNode,
+              let heicPlayer = self.heicSequencePlayer
+        else {
+            print("❌ 错误：HEIC遮罩过渡缺少视频节点组件。")
+            isMasking = false
+            currentClipIndex += 1
+            playNextClipInQueue()
+            return
+        }
+        
+        // 设置maskNode尺寸
+        maskNode.size = scene.size
+        maskNode.position = .zero  // 相对于cropNode
+        
+        // 创建或重用cropNode来应用遮罩效果
+        guard let cropNode = self.cropNode else {
+            print("❌ 错误：cropNode应该在初始化时已创建")
+            isMasking = false
+            currentClipIndex += 1
+            playNextClipInQueue()
+            return
+        }
+        
+        // cropNode始终保持在zPosition=10，不需要调整层级
+        
+        // 移除旧的子节点和父节点关系
+        mainVideoNode.removeFromParent()
+        cropNode.removeFromParent()
+        
+        // 将主视频节点添加到cropNode（AS内容需要在cropNode中进行遮罩）
+        mainVideoNode.position = .zero  // 相对于cropNode的位置
+        cropNode.addChild(mainVideoNode)
+        
+        // 将maskNode设置为cropNode的mask
+        cropNode.maskNode = maskNode
+        
+        // 将cropNode重新添加到场景
+        scene.addChild(cropNode)
+        
+        if isRevealing {
+            // TM_Reveal: 显示AS/SS
+            guard let contentClip = contentClip,
+                  let contentUrl = Bundle(for: type(of: self)).url(
+                    forResource: contentClip.fileName, withExtension: nil)
+            else {
+                print("❌ 错误：HEIC显示过渡缺少内容片段 (AS/SS)。")
+                isMasking = false
+                currentClipIndex += 1
+                playNextClipInQueue()
+                return
+            }
+            
+            print("🔄 准备显示内容: \(contentClip.fileName)")
+            
+            // 预加载下一个内容（AS/SS）
+            let newItem = AVPlayerItem(url: contentUrl)
+            queuePlayer?.removeAllItems()
+            queuePlayer?.replaceCurrentItem(with: newItem)
+            queuePlayer?.pause()  // 暂停直到遮罩完成
+            
+            if contentClip.type == .AS {
+                // 更新当前状态
+                currentStateType = .playingTMReveal
+                // 使用TM_Reveal的编号而不是AS的编号，因为AS通常没有编号
+                self.lastTransitionNumber = tmClip.number  
+                print("💾 TM_Reveal过渡期间存储转场编号: \(self.lastTransitionNumber ?? "nil")")
+            } else if contentClip.type == .SS_Intro {
+                               currentStateType = .playingSSIntro
+            }
+            
+            // 开始播放HEIC序列
+            heicPlayer.play(on: maskNode) { [weak self] in
+                DispatchQueue.main.async {
+                    self?.heicSequenceMaskCompleted(isRevealing: true, tmClip: tmClip, basePattern: basePattern)
+                }
+            }
+        } else {
+            // TM_Hide: 隐藏当前内容
+            if self.currentStateType == .playingAS {
+                currentStateType = .transitioningToHalftoneHide
+            }
+            
+            // 播放HEIC序列
+            heicPlayer.play(on: maskNode) { [weak self] in
+                DispatchQueue.main.async {
+                    self?.heicSequenceMaskCompleted(isRevealing: false, tmClip: tmClip, basePattern: basePattern)
+                }
+            }
+        }
+    }
+    
+    private func heicSequenceMaskCompleted(isRevealing: Bool, tmClip: SnoopyClip, basePattern: String) {
+        print("✅ HEIC遮罩序列完成: \(basePattern), 显示: \(isRevealing), TM片段: \(tmClip.fileName)")
+        
+        if isRevealing {
+            // TM_Reveal完成：开始播放内容
+            print("▶️ TM_Reveal完成，开始播放内容")
+            queuePlayer?.play()
+            
+            // 如果当前播放的是AS，清除队列
+            if currentStateType == .playingTMReveal && currentClipIndex + 1 < currentClipsQueue.count &&
+                currentClipsQueue[currentClipIndex + 1].type == .AS {
+                print("🔄 AS显示，清理队列")
+                currentClipIndex += 1  // 移到AS
+            }
+        } else {
+            // TM_Hide完成：继续到下一个序列
+            print("▶️ TM_Hide完成，继续到下一个序列")
+            
+            // 使用当前TM_Hide片段的编号来生成ST_Hide序列
+            let transitionNumber = tmClip.number
+            print("🔍 使用TM_Hide编号生成序列: \(transitionNumber ?? "nil")")
+            
+            if !nextAfterAS.isEmpty {
+                print("🔄 使用预存队列: \(nextAfterAS.count) 片段")
+                
+                // 确保nextAfterAS包含预期的ST_Hide → RPH → BP_Node序列
+                if nextAfterAS.count >= 3 && nextAfterAS[0].type == .ST_Hide {
+                    print("✅ 确认队列正确：下一个片段是ST_Hide: \(nextAfterAS[0].fileName)")
+                    
+                    // 设置当前队列并从索引0开始（即ST_Hide）
+                    currentClipsQueue = nextAfterAS
+                    currentClipIndex = 0
+                    nextAfterAS = []
+                    
+                } else {
+                    print("⚠️ nextAfterAS队列不正确，尝试重新生成正确的序列")
+                    
+                    // 使用TM_Hide的编号重新生成正确的序列
+                    if let number = transitionNumber,
+                       let stHide = findMatchingST(forNumber: number, type: .ST_Hide),
+                       let randomRPH = findRandomClip(ofType: .RPH),
+                       let targetBPNode = findClip(ofType: .BP_Node, nodeName: randomRPH.to) {
+                        
+                        // 重新创建正确的队列
+                        currentClipsQueue = [stHide, randomRPH, targetBPNode]
+                        currentClipIndex = 0
+                        print("✅ 成功重建队列: ST_Hide → RPH → BP_Node")
+                    } else {
+                        print("❌ 无法生成正确的ST_Hide序列，使用回退序列")
+                        let fallbackQueue = generateFallbackSequence()
+                        if !fallbackQueue.isEmpty {
+                            currentClipsQueue = fallbackQueue
+                            currentClipIndex = 0
+                        }
+                    }
+                }
+            } else {
+                print("🔄 没有预存队列，基于TM_Hide编号生成ST_Hide → RPH → BP_Node序列")
+                
+                // 直接使用TM_Hide的编号生成ST_Hide序列
+                if let number = transitionNumber,
+                   let stHide = findMatchingST(forNumber: number, type: .ST_Hide),
+                   let randomRPH = findRandomClip(ofType: .RPH),
+                   let targetBPNode = findClip(ofType: .BP_Node, nodeName: randomRPH.to) {
+                    
+                    currentClipsQueue = [stHide, randomRPH, targetBPNode]
+                    currentClipIndex = 0
+                    print("✅ 基于TM_Hide编号 \(number) 生成队列: ST_Hide → RPH → BP_Node")
+                } else {
+                    print("❌ 无法基于TM_Hide编号生成序列，使用回退序列")
+                    let fallbackQueue = generateFallbackSequence()
+                    if !fallbackQueue.isEmpty {
+                        currentClipsQueue = fallbackQueue
+                        currentClipIndex = 0
+                    }
+                }
+            }
+        }
+        
+        // 清理cropNode遮罩，根据下一个内容类型决定videoNode位置
+        if let cropNode = self.cropNode, let mainVideoNode = self.videoNode, let scene = self.scene {
+            // 清除遮罩效果
+            cropNode.maskNode = nil
+            
+            // 检查下一个播放的内容类型
+            let nextIsAS = currentClipIndex < currentClipsQueue.count &&
+            currentClipsQueue[currentClipIndex].type == .AS
+            
+            if nextIsAS {
+                // 下一个是AS，保持在cropNode中
+                if mainVideoNode.parent != cropNode {
+                    mainVideoNode.removeFromParent()
+                    mainVideoNode.position = .zero
+                    cropNode.addChild(mainVideoNode)
+                    print("🔄 下一个内容是AS，保持在cropNode中")
+                }
+            } else {
+                // 下一个不是AS，移回场景Layer 3
+                mainVideoNode.removeFromParent()
+                mainVideoNode.position = CGPoint(x: scene.size.width / 2, y: scene.size.height / 2)
+                scene.addChild(mainVideoNode)
+                print("🔄 下一个内容非AS，移回Layer 3")
+            }
+        }
+        
+        // 重置状态
+        isMasking = false
+        
+        // 继续队列处理
+        playNextClipInQueue()
+    }
+    
+    // Old AVPlayer-based mask transition removed - replaced by startMaskTransitionWithHEIC
+    
+    // TM mask playback is now handled by HEIC sequence player via heicSequenceMaskCompleted callback
+    
+    // Helper methods for TM management are now handled by HEIC sequence player
+    
+    // MARK: - ScreenSaverView Overrides & Lifecycle
+    
+    override func startAnimation() {
+        super.startAnimation()
+        queuePlayer?.play()
+        if overlayPlayerItem != nil {
+            overlayPlayer?.play()
+        }
+    }
+    
+    override func stopAnimation() {
+        super.stopAnimation()
+        queuePlayer?.pause()
+        overlayPlayer?.pause()
+    }
+    
+    override func draw(_ rect: NSRect) {
+        super.draw(rect)
+    }
+    
+    override func animateOneFrame() {
+    }
+    
+    override var hasConfigureSheet: Bool {
+        return false
+    }
+    
+    override var configureSheet: NSWindow? {
+        return nil
+    }
+    
+    @objc static func isCompatibleWithModernScreenSaverEngine() -> Bool {
+        return true
+    }
+    
+    // MARK: - Notifications
+    
+    private func setNotifications() {
+        DistributedNotificationCenter.default.addObserver(
+            self,
+            selector: #selector(willStop(_:)),
+            name: Notification.Name("com.apple.screensaver.willstop"),
+            object: nil
+        )
+        
+        DistributedNotificationCenter.default.addObserver(
+            self,
+            selector: #selector(willStart(_:)),
+            name: Notification.Name("com.apple.screensaver.willstart"),
+            object: nil
+        )
+        
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(onSleepNote(note:)),
+            name: NSWorkspace.willSleepNotification,
+            object: nil
+        )
+    }
+    
+    @objc private func willStop(_ notification: Notification) {
+        print("屏保将要停止")
+        
+        if #available(macOS 14.0, *) {
+            DispatchQueue.main.async {
+                exit(0)
+            }
+        }
+        
+        stopAnimation()
+    }
+    
+    @objc private func willStart(_ notification: Notification) {
+        print("屏保将要开始")
+    }
+    
+    @objc private func onSleepNote(note: Notification) {
+        print("系统将要睡眠")
+        
+        if #available(macOS 14.0, *) {
+            DispatchQueue.main.async {
+                exit(0)
+            }
+        }
+    }
+    
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+        DistributedNotificationCenter.default.removeObserver(self)
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
+        // observeMaskPlayerItem removed - no longer needed for HEIC sequence player
+        
+        queuePlayer?.pause()
+        queuePlayer = nil
+        overlayPlayer?.pause()
+        overlayPlayer = nil
+        // tmMaskPlayer removed - now using HEIC sequence player for TM animations
+    }
+}
+
+// MARK: - Array Extension
+
+extension Array {
+    subscript(safe index: Int) -> Element? {
+        return indices.contains(index) ? self[index] : nil
+    }
+}
