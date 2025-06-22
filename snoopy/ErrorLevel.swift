@@ -1,3 +1,11 @@
+//
+//  ErrorLevel.swift
+//  snoopy
+//
+//  Created by miuGrey on 2025/6/22.
+//
+
+
 import Cocoa
 import os.log
 
@@ -63,38 +71,10 @@ func appSupportPath() -> String {
 
 // This will clear the existing log if > 1MB
 // This is called at startup
-func rollLogIfNeeded() {
-    let cacheDirectory = Cache.supportPath
-    // if let cacheDirectory = path() {
-    var cacheFileUrl = URL(fileURLWithPath: cacheDirectory as String)
-    
-    if Aerial.helper.underCompanion {
-        cacheFileUrl.appendPathComponent("AerialUnderCompanionLog.txt")
-    } else {
-        cacheFileUrl.appendPathComponent("AerialLog.txt")
-    }
-    
-    if FileManager.default.fileExists(atPath: cacheFileUrl.path) {
-        do {
-            let resourceValues = try cacheFileUrl.resourceValues(forKeys: [.fileSizeKey])
-            let fileSize = Int64(resourceValues.fileSize!)
 
-            if (fileSize > 1000000) {
-                try FileManager.default.removeItem(at: cacheFileUrl)
-            }
-                
-        } catch {
-            logToConsole(error.localizedDescription)
-        }
-    }
-}
 
 // swiftlint:disable:next identifier_name
 func Log(level: ErrorLevel, message: String) {
-    #if DEBUG
-    print("\(message)\n")
-    #endif
-
     errorMessages.append(LogMessage(level: level, message: message))
 
     // We report errors to Console.app
@@ -109,74 +89,25 @@ func Log(level: ErrorLevel, message: String) {
     }
 
     // We may have set callbacks
-    if level == .warning || level == .error || (level == .debug && PrefsAdvanced.debugMode) {
+    if level == .warning || level == .error || (level == .debug) {
         Logger.sharedInstance.callBack(level: level)
     }
-
-    // Log to disk
-    if PrefsAdvanced.debugMode {
         logToConsole(message)
-        logToDisk(message)
-    }
 }
 
 func logToConsole(_ message: String) {
     if #available(OSX 10.12, *) {
         // This is faster when available
         let log = OSLog(subsystem: Bundle.main.bundleIdentifier!, category: "Screensaver")
-        os_log("Aerial: %{public}@", log: log, type: .default, message)
+        os_log("Snoopy: %{public}@", log: log, type: .default, message)
     } else {
-        NSLog("Aerial: \(message)")
+        NSLog("Snoopy: \(message)")
     }
 
-}
-func logToDisk(_ message: String) {
-    DispatchQueue.main.async {
-        // Prefix message with date
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
-        let string = dateFormatter.string(from: Date()) + " : " + message + "\n"
-
-        // if let cacheDirectory = VideoCache.appSupportDirectory {
-
-        let cacheDirectory = Cache.supportPath        // if let cacheDirectory = path() {
-        var cacheFileUrl = URL(fileURLWithPath: cacheDirectory as String)
-        
-        if Aerial.helper.underCompanion {
-            cacheFileUrl.appendPathComponent("AerialUnderCompanionLog.txt")
-        } else {
-            cacheFileUrl.appendPathComponent("AerialLog.txt")
-        }
-
-        let data = string.data(using: String.Encoding.utf8, allowLossyConversion: false)!
-
-        if FileManager.default.fileExists(atPath: cacheFileUrl.path) {
-            // Append to log
-            do {
-                let fileHandle = try FileHandle(forWritingTo: cacheFileUrl)
-                fileHandle.seekToEndOfFile()
-                fileHandle.write(data)
-                fileHandle.closeFile()
-            } catch {
-                NSLog("AerialError: Can't open handle for AerialLog.txt")
-            }
-        } else {
-            // Create new log
-            do {
-                try data.write(to: cacheFileUrl, options: .atomic)
-            } catch {
-                NSLog("AerialError: Can't write to file AerialLog.txt")
-            }
-        }
-        // }
-    }
 }
 
 func debugLog(_ message: String) {
-    // Comment the condition to always log debug mode
-    if PrefsAdvanced.debugMode {
-        Log(level: .debug, message: message)
-    }
+    Log(level: .debug, message: message)
 }
 
 func infoLog(_ message: String) {

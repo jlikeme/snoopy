@@ -28,35 +28,68 @@ class HEICSequencePlayer {
         stop()
     }
 
-    // 加载HEIC序列
-    func loadSequence(basePattern: String) -> Bool {
-        print("🎬 HEICSequencePlayer: 正在加载序列 \(basePattern)")
+    // 加载HEIC序列 - 异步版本
+    func loadSequence(basePattern: String, completion: @escaping (Bool) -> Void) {
+        debugLog("🎬 HEICSequencePlayer: 正在异步加载序列 \(basePattern)")
 
         maskTextures.removeAll()
         outlineTextures.removeAll()
 
         // 清理 basePattern，移除可能的 _Mask 或 _Outline 后缀
         let cleanBasePattern = cleanBasePattern(basePattern)
-        print("🔧 清理后的基础模式: \(cleanBasePattern)")
+        debugLog("🔧 清理后的基础模式: \(cleanBasePattern)")
 
-        // 首先加载 mask 序列
-        let maskLoaded = loadMaskSequence(basePattern: cleanBasePattern)
-
-        // 然后尝试加载 outline 序列
-        let outlineLoaded = loadOutlineSequence(basePattern: cleanBasePattern)
-
-        if maskLoaded {
-            print("✅ HEICSequencePlayer: Mask 序列加载成功，\(maskTextures.count) 帧")
-            if outlineLoaded {
-                print("✅ HEICSequencePlayer: Outline 序列加载成功，\(outlineTextures.count) 帧")
-            } else {
-                print("ℹ️ HEICSequencePlayer: 未找到 Outline 序列，将仅播放 Mask")
+        // 使用 .utility QoS 级别来避免优先级反转
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self = self else {
+                DispatchQueue.main.async {
+                    completion(false)
+                }
+                return
             }
-            return true
-        } else {
-            print("❌ HEICSequencePlayer: Mask 序列加载失败")
-            return false
+
+            // 加载 mask 序列的图像数据并创建纹理
+            let maskTextures = self.loadMaskTexturesAsync(basePattern: cleanBasePattern)
+
+            // 加载 outline 序列的图像数据并创建纹理
+            let outlineTextures = self.loadOutlineTexturesAsync(basePattern: cleanBasePattern)
+
+            // 回到主线程更新状态
+            DispatchQueue.main.async {
+                self.maskTextures = maskTextures
+                self.outlineTextures = outlineTextures
+
+                let maskLoaded = !maskTextures.isEmpty
+                let outlineLoaded = !outlineTextures.isEmpty
+
+                if maskLoaded {
+                    debugLog("✅ HEICSequencePlayer: Mask 序列加载成功，\(maskTextures.count) 帧")
+                    if outlineLoaded {
+                        debugLog("✅ HEICSequencePlayer: Outline 序列加载成功，\(outlineTextures.count) 帧")
+                    } else {
+                        debugLog("ℹ️ HEICSequencePlayer: 未找到 Outline 序列，将仅播放 Mask")
+                    }
+                    completion(true)
+                } else {
+                    debugLog("❌ HEICSequencePlayer: Mask 序列加载失败")
+                    completion(false)
+                }
+            }
         }
+    }
+
+    // 同步版本保持兼容性（内部使用异步实现）
+    func loadSequence(basePattern: String) -> Bool {
+        let semaphore = DispatchSemaphore(value: 0)
+        var result = false
+
+        loadSequence(basePattern: basePattern) { success in
+            result = success
+            semaphore.signal()
+        }
+
+        semaphore.wait()
+        return result
     }
 
     // 清理基础模式，移除可能的 _Mask 或 _Outline 后缀
@@ -69,41 +102,41 @@ class HEICSequencePlayer {
         return pattern
     }
 
-    // 加载 mask 序列
-    private func loadMaskSequence(basePattern: String) -> Bool {
-        // 构造 mask 的完整名称
-        // 例如：101_TM001_Hide -> 101_TM001_Hide_Mask
-        let maskBasePattern = basePattern + "_Mask"
+    // 加载 mask 序列纹理 - 异步版本（在后台线程执行，包含纹理创建）
+    private func loadMaskTexturesAsync(basePattern: String) -> [SKTexture] {
+        var textures: [SKTexture] = []
 
+        // 构造 mask 的完整名称
+        let maskBasePattern = basePattern + "_Mask"
         var frameIndex = 0
-        var loadedAnyFrames = false
 
         // 首先尝试加载带帧号的格式
         while true {
             let fileName = String(format: "%@_%06d", maskBasePattern, frameIndex)
 
-            if let url = Bundle.main.url(forResource: fileName, withExtension: "heic") {
+            if let url = Bundle(for: type(of: self)).url(
+                forResource: fileName, withExtension: "heic")
+            {
                 do {
                     let imageData = try Data(contentsOf: url)
                     if let image = NSImage(data: imageData) {
                         let texture = SKTexture(image: image)
                         texture.filteringMode = .linear
-                        maskTextures.append(texture)
-                        loadedAnyFrames = true
-                        print("📸 加载 mask 帧: \(fileName).heic")
+                        textures.append(texture)
+                        debugLog("📸 后台加载 mask 纹理: \(fileName).heic")
                     } else {
-                        print("❌ 无法从 \(fileName).heic 创建 mask 图像")
+                        debugLog("❌ 无法从 \(fileName).heic 创建 mask 图像")
                         break
                     }
                 } catch {
-                    print("❌ 无法从 \(fileName).heic 加载 mask 数据: \(error.localizedDescription)")
+                    debugLog("❌ 无法从 \(fileName).heic 加载 mask 数据: \(error.localizedDescription)")
                     break
                 }
             } else {
                 if frameIndex == 0 {
-                    print("⚠️ 未找到 mask 帧序列，尝试加载单个文件 \(maskBasePattern).heic")
+                    debugLog("⚠️ 未找到 mask 帧序列，尝试加载单个文件 \(maskBasePattern).heic")
                     // 尝试加载单个文件
-                    if let url = Bundle.main.url(
+                    if let url = Bundle(for: type(of: self)).url(
                         forResource: maskBasePattern, withExtension: "heic")
                     {
                         do {
@@ -111,20 +144,19 @@ class HEICSequencePlayer {
                             if let image = NSImage(data: imageData) {
                                 let texture = SKTexture(image: image)
                                 texture.filteringMode = .linear
-                                maskTextures.append(texture)
-                                loadedAnyFrames = true
-                                print("📸 加载单个 mask HEIC文件: \(maskBasePattern).heic")
+                                textures.append(texture)
+                                debugLog("📸 后台加载单个 mask HEIC文件: \(maskBasePattern).heic")
                             }
                         } catch {
-                            print(
+                            debugLog(
                                 "❌ 无法加载单个 mask 文件 \(maskBasePattern).heic: \(error.localizedDescription)"
                             )
                         }
                     } else {
-                        print("❌ 找不到任何匹配 \(maskBasePattern) 的 mask HEIC文件")
+                        debugLog("❌ 找不到任何匹配 \(maskBasePattern) 的 mask HEIC文件")
                     }
                 } else {
-                    print("✅ Mask 序列加载完成，共 \(frameIndex) 帧")
+                    debugLog("✅ Mask 纹理后台加载完成，共 \(frameIndex) 帧")
                 }
                 break
             }
@@ -132,44 +164,44 @@ class HEICSequencePlayer {
             frameIndex += 1
         }
 
-        return loadedAnyFrames
+        return textures
     }
 
-    // 加载 outline 序列
-    private func loadOutlineSequence(basePattern: String) -> Bool {
-        // 构造 outline 的 basePattern
-        // 例如：101_TM001_Hide -> 101_TM001_Hide_Outline
-        let outlineBasePattern = basePattern + "_Outline"
+    // 加载 outline 序列纹理 - 异步版本（在后台线程执行，包含纹理创建）
+    private func loadOutlineTexturesAsync(basePattern: String) -> [SKTexture] {
+        var textures: [SKTexture] = []
 
+        // 构造 outline 的 basePattern
+        let outlineBasePattern = basePattern + "_Outline"
         var frameIndex = 0
-        var loadedAnyFrames = false
 
         // 尝试加载带帧号的格式
         while true {
             let fileName = String(format: "%@_%06d", outlineBasePattern, frameIndex)
 
-            if let url = Bundle.main.url(forResource: fileName, withExtension: "heic") {
+            if let url = Bundle(for: type(of: self)).url(
+                forResource: fileName, withExtension: "heic")
+            {
                 do {
                     let imageData = try Data(contentsOf: url)
                     if let image = NSImage(data: imageData) {
                         let texture = SKTexture(image: image)
                         texture.filteringMode = .linear
-                        outlineTextures.append(texture)
-                        loadedAnyFrames = true
-                        print("📸 加载 outline 帧: \(fileName).heic")
+                        textures.append(texture)
+                        debugLog("📸 后台加载 outline 纹理: \(fileName).heic")
                     } else {
-                        print("❌ 无法从 \(fileName).heic 创建 outline 图像")
+                        debugLog("❌ 无法从 \(fileName).heic 创建 outline 图像")
                         break
                     }
                 } catch {
-                    print("❌ 无法从 \(fileName).heic 加载 outline 数据: \(error.localizedDescription)")
+                    debugLog("❌ 无法从 \(fileName).heic 加载 outline 数据: \(error.localizedDescription)")
                     break
                 }
             } else {
                 if frameIndex == 0 {
-                    print("⚠️ 未找到 outline 帧序列，尝试加载单个文件 \(outlineBasePattern).heic")
+                    debugLog("⚠️ 未找到 outline 帧序列，尝试加载单个文件 \(outlineBasePattern).heic")
                     // 尝试加载单个文件
-                    if let url = Bundle.main.url(
+                    if let url = Bundle(for: type(of: self)).url(
                         forResource: outlineBasePattern, withExtension: "heic")
                     {
                         do {
@@ -177,20 +209,19 @@ class HEICSequencePlayer {
                             if let image = NSImage(data: imageData) {
                                 let texture = SKTexture(image: image)
                                 texture.filteringMode = .linear
-                                outlineTextures.append(texture)
-                                loadedAnyFrames = true
-                                print("📸 加载单个 outline HEIC文件: \(outlineBasePattern).heic")
+                                textures.append(texture)
+                                debugLog("📸 后台加载单个 outline HEIC文件: \(outlineBasePattern).heic")
                             }
                         } catch {
-                            print(
+                            debugLog(
                                 "❌ 无法加载单个 outline 文件 \(outlineBasePattern).heic: \(error.localizedDescription)"
                             )
                         }
                     } else {
-                        print("ℹ️ 找不到任何匹配 \(outlineBasePattern) 的 outline HEIC文件")
+                        debugLog("ℹ️ 找不到任何匹配 \(outlineBasePattern) 的 outline HEIC文件")
                     }
                 } else {
-                    print("✅ Outline 序列加载完成，共 \(frameIndex) 帧")
+                    debugLog("✅ Outline 纹理后台加载完成，共 \(frameIndex) 帧")
                 }
                 break
             }
@@ -198,47 +229,15 @@ class HEICSequencePlayer {
             frameIndex += 1
         }
 
-        return loadedAnyFrames
+        return textures
     }
 
-    // 开始播放序列（兼容性方法，仅播放 mask）
-    func play(on node: SKSpriteNode, completion: (() -> Void)? = nil) {
-        guard !maskTextures.isEmpty else {
-            print("❌ HEICSequencePlayer: 无法播放，序列为空")
-            completion?()
-            return
-        }
-
-        self.targetMaskNode = node
-        self.targetOutlineNode = nil
-        self.completion = completion
-
-        stop()  // 停止任何现有播放
-
-        currentIndex = 0
-        isPlaying = true
-
-        // 设置第一帧
-        if !maskTextures.isEmpty {
-            node.texture = maskTextures[0]
-        }
-
-        let frameInterval = 1.0 / frameRate
-
-        animationTimer = Timer.scheduledTimer(withTimeInterval: frameInterval, repeats: true) {
-            [weak self] _ in
-            self?.updateFrame()
-        }
-
-        print("🎬 HEICSequencePlayer: 开始播放 \(maskTextures.count) 帧，帧率 \(frameRate) fps")
-    }
-
-    // 开始播放序列（支持双层）
+    // 开始播放序列（双层播放：mask + outline）
     func playDual(
-        maskNode: SKSpriteNode, outlineNode: SKSpriteNode? = nil, completion: (() -> Void)? = nil
+        maskNode: SKSpriteNode, outlineNode: SKSpriteNode, completion: (() -> Void)? = nil
     ) {
         guard !maskTextures.isEmpty else {
-            print("❌ HEICSequencePlayer: 无法播放，mask 序列为空")
+            debugLog("❌ HEICSequencePlayer: 无法播放，mask 序列为空")
             completion?()
             return
         }
@@ -255,27 +254,27 @@ class HEICSequencePlayer {
         // 设置第一帧
         maskNode.texture = maskTextures[0]
 
-        // 如果有 outline 节点且有 outline 纹理，设置 outline 第一帧
-        if let outlineNode = outlineNode, !outlineTextures.isEmpty {
+        // 设置 outline 第一帧
+        if !outlineTextures.isEmpty {
             outlineNode.texture = outlineTextures[0]
             outlineNode.isHidden = false
-            print("✅ Outline 节点显示并设置第一帧")
-        } else if let outlineNode = outlineNode {
+            debugLog("✅ Outline 节点显示并设置第一帧")
+        } else {
             outlineNode.isHidden = true
-            print("ℹ️ 没有 outline 纹理，隐藏 outline 节点")
+            debugLog("ℹ️ 没有 outline 纹理，隐藏 outline 节点")
         }
 
         let frameInterval = 1.0 / frameRate
 
         animationTimer = Timer.scheduledTimer(withTimeInterval: frameInterval, repeats: true) {
             [weak self] _ in
-            self?.updateDualFrame()
+            self?.updateFrame()
         }
 
-        print("🎬 HEICSequencePlayer: 开始双层播放")
-        print("  - Mask: \(maskTextures.count) 帧")
-        print("  - Outline: \(outlineTextures.count) 帧")
-        print("  - 帧率: \(frameRate) fps")
+        debugLog("🎬 HEICSequencePlayer: 开始双层播放")
+        debugLog("  - Mask: \(maskTextures.count) 帧")
+        debugLog("  - Outline: \(outlineTextures.count) 帧")
+        debugLog("  - 帧率: \(frameRate) fps")
     }
 
     // 停止播放
@@ -284,7 +283,7 @@ class HEICSequencePlayer {
         animationTimer = nil
         isPlaying = false
 
-        print("⏹️ HEICSequencePlayer: 停止播放")
+        debugLog("⏹️ HEICSequencePlayer: 停止播放")
     }
 
     // 暂停播放
@@ -293,7 +292,7 @@ class HEICSequencePlayer {
         animationTimer = nil
         isPlaying = false
 
-        print("⏸️ HEICSequencePlayer: 暂停播放")
+        debugLog("⏸️ HEICSequencePlayer: 暂停播放")
     }
 
     // 恢复播放
@@ -303,20 +302,12 @@ class HEICSequencePlayer {
         isPlaying = true
         let frameInterval = 1.0 / frameRate
 
-        // 根据是否有 outline 节点使用不同的更新方法
-        if targetOutlineNode != nil {
-            animationTimer = Timer.scheduledTimer(withTimeInterval: frameInterval, repeats: true) {
-                [weak self] _ in
-                self?.updateDualFrame()
-            }
-        } else {
-            animationTimer = Timer.scheduledTimer(withTimeInterval: frameInterval, repeats: true) {
-                [weak self] _ in
-                self?.updateFrame()
-            }
+        animationTimer = Timer.scheduledTimer(withTimeInterval: frameInterval, repeats: true) {
+            [weak self] _ in
+            self?.updateFrame()
         }
 
-        print("▶️ HEICSequencePlayer: 恢复播放")
+        debugLog("▶️ HEICSequencePlayer: 恢复播放")
     }
 
     // 跳转到指定时间
@@ -333,12 +324,12 @@ class HEICSequencePlayer {
             maskNode.texture = maskTextures[currentIndex]
         }
 
-        // 如果有 outline 节点且有纹理，也更新 outline
+        // 更新 outline 节点
         if let outlineNode = targetOutlineNode, currentIndex < outlineTextures.count {
             outlineNode.texture = outlineTextures[currentIndex]
         }
 
-        print("⏭️ HEICSequencePlayer: 跳转到帧 \(frameIndex) (时间: \(seconds)s)")
+        debugLog("⏭️ HEICSequencePlayer: 跳转到帧 \(frameIndex) (时间: \(seconds)s)")
     }
 
     // 获取当前播放状态
@@ -359,28 +350,8 @@ class HEICSequencePlayer {
         return CMTime(seconds: currentSeconds, preferredTimescale: CMTimeScale(frameRate))
     }
 
-    // 私有方法：更新帧（兼容性方法，仅更新 mask）
+    // 私有方法：更新帧（双层播放）
     private func updateFrame() {
-        guard isPlaying && !maskTextures.isEmpty else { return }
-
-        // 检查是否播放完成
-        if currentIndex >= maskTextures.count {
-            // 播放完成
-            stop()
-            completion?()
-            return
-        }
-
-        // 更新节点纹理
-        if let targetNode = targetMaskNode {
-            targetNode.texture = maskTextures[currentIndex]
-        }
-
-        currentIndex += 1
-    }
-
-    // 私有方法：更新双层帧
-    private func updateDualFrame() {
         guard isPlaying && !maskTextures.isEmpty else { return }
 
         // 检查是否播放完成
@@ -396,7 +367,7 @@ class HEICSequencePlayer {
             maskNode.texture = maskTextures[currentIndex]
         }
 
-        // 更新 outline 节点纹理（如果存在且有纹理）
+        // 更新 outline 节点纹理
         if let outlineNode = targetOutlineNode, currentIndex < outlineTextures.count {
             outlineNode.texture = outlineTextures[currentIndex]
         }
