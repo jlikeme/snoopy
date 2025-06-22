@@ -5,6 +5,7 @@ class WeatherManager {
     private var currentWeather: WeatherCondition = .cloudy  // 手动控制的天气变量
     private var currentAdcode: String?  // 当前地区编码
     private var weatherAPIAvailable: Bool = false  // 天气API是否可用
+    private var rawWeatherString: String?  // 存储原始天气字符串用于模糊匹配
 
     init() {
         loadConfiguration()
@@ -201,6 +202,9 @@ class WeatherManager {
     }
 
     private func updateWeatherCondition(from weatherString: String) {
+        // 存储原始天气字符串用于模糊匹配
+        self.rawWeatherString = weatherString
+
         let newWeather: WeatherCondition
 
         if weatherString.contains("晴") {
@@ -231,6 +235,11 @@ class WeatherManager {
 
     func isAPIAvailable() -> Bool {
         return weatherAPIAvailable
+    }
+
+    // 获取原始天气字符串用于模糊匹配
+    func getRawWeatherString() -> String? {
+        return rawWeatherString
     }
 
     // 公共方法用于启动天气更新过程

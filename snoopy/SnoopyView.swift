@@ -57,8 +57,8 @@ class SnoopyScreenSaverView: ScreenSaverView, SKSceneDelegate {
         // 2. 初始化基本管理器
         stateManager = StateManager()
         playerManager = PlayerManager()
-        sceneManager = SceneManager(bounds: bounds)
         weatherManager = WeatherManager()
+        sceneManager = SceneManager(bounds: bounds, weatherManager: weatherManager)
 
         // 3. 异步加载视频片段
         Task {

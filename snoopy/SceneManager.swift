@@ -25,16 +25,15 @@ class SceneManager {
     // --- Properties ---
     private let scale: CGFloat = 720.0 / 1080.0
     private let offside: CGFloat = 180.0 / 1080.0
-    private let colors: [NSColor] = [
-        NSColor(red: 50.0 / 255.0, green: 60.0 / 255.0, blue: 47.0 / 255.0, alpha: 1.0),
-        NSColor(red: 5.0 / 255.0, green: 168.0 / 255.0, blue: 157.0 / 255.0, alpha: 1.0),
-        NSColor(red: 65.0 / 255.0, green: 176.0 / 255.0, blue: 246.0 / 255.0, alpha: 1.0),
-        NSColor(red: 238.0 / 255.0, green: 95.0 / 255.0, blue: 167.0 / 255.0, alpha: 1.0),
-        NSColor.black,
-    ]
     private var backgroundImages: [String] = []
 
-    init(bounds: NSRect) {
+    // --- Color Palette Manager ---
+    private var colorPaletteManager: ColorPaletteManager
+    private weak var weatherManager: WeatherManager?
+
+    init(bounds: NSRect, weatherManager: WeatherManager) {
+        self.colorPaletteManager = ColorPaletteManager()
+        self.weatherManager = weatherManager
         self.skView = SKView(frame: bounds)
         self.scene = SKScene(size: bounds.size)
         loadBackgroundImages()
@@ -154,19 +153,45 @@ class SceneManager {
 
     func updateBackgrounds() {
         debugLog("🔄 更新背景...")
-        if let halftoneNode = self.halftoneNode {
-            halftoneNode.alpha = 0.2
-        }
-        updateBackgroundColor()
+        updateBackgroundColorAndHalftone()
         updateBackgroundImage()
     }
 
-    private func updateBackgroundColor() {
-        guard let bgNode = self.backgroundColorNode else { return }
-        let randomColor = colors.randomElement() ?? .black
-        bgNode.color = randomColor
+    private func updateBackgroundColorAndHalftone() {
+        guard let bgNode = self.backgroundColorNode,
+            let halftoneNode = self.halftoneNode,
+            let weatherManager = self.weatherManager
+        else { return }
+
+        // 获取天气字符串
+        let weatherString = colorPaletteManager.getWeatherString(from: weatherManager)
+
+        // 获取匹配的调色板
+        guard let palette = colorPaletteManager.getColorPalette(for: weatherString) else {
+            debugLog("❌ 无法获取调色板，使用默认黑色背景")
+            bgNode.color = .black
+            bgNode.alpha = 1
+            halftoneNode.alpha = 1
+            return
+        }
+
+        // 设置背景色（忽略透明度，始终为1）
+        bgNode.color = NSColor(
+            red: palette.backgroundColor.redComponent,
+            green: palette.backgroundColor.greenComponent,
+            blue: palette.backgroundColor.blueComponent,
+            alpha: 1.0
+        )
         bgNode.alpha = 1
-        debugLog("🎨 背景颜色更新为: \(randomColor)")
+
+        // 设置halftone层的颜色和透明度
+        halftoneNode.color = palette.overlayColor
+        halftoneNode.colorBlendFactor = 1.0  // 完全应用颜色混合
+        halftoneNode.alpha = 1
+
+        debugLog(
+            "🎨 背景颜色更新 - 天气: \(weatherString ?? "无"), 背景色: \(palette.backgroundColor), 叠加色: \(palette.overlayColor)"
+        )
     }
 
     private func updateBackgroundImage() {

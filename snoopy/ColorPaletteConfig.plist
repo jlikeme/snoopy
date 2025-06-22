@@ -4,16 +4,16 @@
 <dict>
 	<key>colorPalettes</key>
 	<dict>
-		<!-- Cloudy Weather -->
 		<key>cloudy_day</key>
 		<dict>
 			<key>weather</key>
-			<string>cloudy</string>
-			<key>timeOfDay</key>
 			<array>
-				<string>morning</string>
-				<string>afternoon</string>
+				<string>晴</string>
+				<string>阴</string>
+				<string>云</string>
 			</array>
+			<key>timeOfDay</key>
+			<string>day</string>
 			<key>backgroundColor</key>
 			<dict>
 				<key>red</key>
@@ -23,7 +23,7 @@
 				<key>blue</key>
 				<integer>191</integer>
 				<key>alpha</key>
-				<real>1.0</real>
+				<real>1</real>
 			</dict>
 			<key>overlayColor</key>
 			<dict>
@@ -40,11 +40,13 @@
 		<key>cloudy_evening</key>
 		<dict>
 			<key>weather</key>
-			<string>cloudy</string>
-			<key>timeOfDay</key>
 			<array>
-				<string>evening</string>
+				<string>阴</string>
+				<string>晴</string>
+				<string>云</string>
 			</array>
+			<key>timeOfDay</key>
+			<string>evening</string>
 			<key>backgroundColor</key>
 			<dict>
 				<key>red</key>
@@ -54,7 +56,7 @@
 				<key>blue</key>
 				<integer>152</integer>
 				<key>alpha</key>
-				<real>1.0</real>
+				<real>1</real>
 			</dict>
 			<key>overlayColor</key>
 			<dict>
@@ -71,11 +73,13 @@
 		<key>cloudy_latenight</key>
 		<dict>
 			<key>weather</key>
-			<string>cloudy</string>
-			<key>timeOfDay</key>
 			<array>
-				<string>lateNight</string>
+				<string>云</string>
+				<string>晴</string>
+				<string>阴</string>
 			</array>
+			<key>timeOfDay</key>
+			<string>latenight</string>
 			<key>backgroundColor</key>
 			<dict>
 				<key>red</key>
@@ -85,7 +89,7 @@
 				<key>blue</key>
 				<integer>79</integer>
 				<key>alpha</key>
-				<real>1.0</real>
+				<real>1</real>
 			</dict>
 			<key>overlayColor</key>
 			<dict>
@@ -96,20 +100,18 @@
 				<key>blue</key>
 				<integer>71</integer>
 				<key>alpha</key>
-				<real>1.0</real>
+				<real>1</real>
 			</dict>
 		</dict>
-		
-		<!-- Foggy Weather -->
 		<key>foggy_day</key>
 		<dict>
 			<key>weather</key>
-			<string>foggy</string>
-			<key>timeOfDay</key>
 			<array>
-				<string>morning</string>
-				<string>afternoon</string>
+				<string>雾</string>
+				<string>霾</string>
 			</array>
+			<key>timeOfDay</key>
+			<string>day</string>
 			<key>backgroundColor</key>
 			<dict>
 				<key>red</key>
@@ -119,7 +121,7 @@
 				<key>blue</key>
 				<integer>151</integer>
 				<key>alpha</key>
-				<real>1.0</real>
+				<real>1</real>
 			</dict>
 			<key>overlayColor</key>
 			<dict>
@@ -136,11 +138,12 @@
 		<key>foggy_evening</key>
 		<dict>
 			<key>weather</key>
-			<string>foggy</string>
-			<key>timeOfDay</key>
 			<array>
-				<string>evening</string>
+				<string>雾</string>
+				<string>霾</string>
 			</array>
+			<key>timeOfDay</key>
+			<string>evening</string>
 			<key>backgroundColor</key>
 			<dict>
 				<key>red</key>
@@ -150,7 +153,7 @@
 				<key>blue</key>
 				<integer>131</integer>
 				<key>alpha</key>
-				<real>1.0</real>
+				<real>1</real>
 			</dict>
 			<key>overlayColor</key>
 			<dict>
@@ -167,11 +170,12 @@
 		<key>foggy_latenight</key>
 		<dict>
 			<key>weather</key>
-			<string>foggy</string>
-			<key>timeOfDay</key>
 			<array>
-				<string>lateNight</string>
+				<string>雾</string>
+				<string>霾</string>
 			</array>
+			<key>timeOfDay</key>
+			<string>latenight</string>
 			<key>backgroundColor</key>
 			<dict>
 				<key>red</key>
@@ -181,7 +185,7 @@
 				<key>blue</key>
 				<integer>131</integer>
 				<key>alpha</key>
-				<real>1.0</real>
+				<real>1</real>
 			</dict>
 			<key>overlayColor</key>
 			<dict>
@@ -195,17 +199,16 @@
 				<real>0.3</real>
 			</dict>
 		</dict>
-		
-		<!-- Icy Weather -->
 		<key>icy_day</key>
 		<dict>
 			<key>weather</key>
-			<string>icy</string>
-			<key>timeOfDay</key>
 			<array>
-				<string>morning</string>
-				<string>afternoon</string>
+				<string>冰</string>
+				<string>冷</string>
+				<string>冻</string>
 			</array>
+			<key>timeOfDay</key>
+			<string>day</string>
 			<key>backgroundColor</key>
 			<dict>
 				<key>red</key>
@@ -215,7 +218,7 @@
 				<key>blue</key>
 				<integer>196</integer>
 				<key>alpha</key>
-				<real>1.0</real>
+				<real>1</real>
 			</dict>
 			<key>overlayColor</key>
 			<dict>
@@ -232,11 +235,13 @@
 		<key>icy_evening</key>
 		<dict>
 			<key>weather</key>
-			<string>icy</string>
-			<key>timeOfDay</key>
 			<array>
-				<string>evening</string>
+				<string>冰</string>
+				<string>冷</string>
+				<string>冻</string>
 			</array>
+			<key>timeOfDay</key>
+			<string>evening</string>
 			<key>backgroundColor</key>
 			<dict>
 				<key>red</key>
@@ -246,7 +251,7 @@
 				<key>blue</key>
 				<integer>143</integer>
 				<key>alpha</key>
-				<real>1.0</real>
+				<real>1</real>
 			</dict>
 			<key>overlayColor</key>
 			<dict>
@@ -263,11 +268,13 @@
 		<key>icy_latenight</key>
 		<dict>
 			<key>weather</key>
-			<string>icy</string>
-			<key>timeOfDay</key>
 			<array>
-				<string>lateNight</string>
+				<string>冰</string>
+				<string>冷</string>
+				<string>冻</string>
 			</array>
+			<key>timeOfDay</key>
+			<string>latenight</string>
 			<key>backgroundColor</key>
 			<dict>
 				<key>red</key>
@@ -277,7 +284,7 @@
 				<key>blue</key>
 				<integer>143</integer>
 				<key>alpha</key>
-				<real>1.0</real>
+				<real>1</real>
 			</dict>
 			<key>overlayColor</key>
 			<dict>
@@ -291,17 +298,14 @@
 				<real>0.3</real>
 			</dict>
 		</dict>
-		
-		<!-- Rainy Weather -->
 		<key>rainy_day</key>
 		<dict>
 			<key>weather</key>
-			<string>rainy</string>
-			<key>timeOfDay</key>
 			<array>
-				<string>morning</string>
-				<string>afternoon</string>
+				<string>雨</string>
 			</array>
+			<key>timeOfDay</key>
+			<string>day</string>
 			<key>backgroundColor</key>
 			<dict>
 				<key>red</key>
@@ -311,7 +315,7 @@
 				<key>blue</key>
 				<integer>123</integer>
 				<key>alpha</key>
-				<real>1.0</real>
+				<real>1</real>
 			</dict>
 			<key>overlayColor</key>
 			<dict>
@@ -328,11 +332,11 @@
 		<key>rainy_evening</key>
 		<dict>
 			<key>weather</key>
-			<string>rainy</string>
-			<key>timeOfDay</key>
 			<array>
-				<string>evening</string>
+				<string>雨</string>
 			</array>
+			<key>timeOfDay</key>
+			<string>evening</string>
 			<key>backgroundColor</key>
 			<dict>
 				<key>red</key>
@@ -342,7 +346,7 @@
 				<key>blue</key>
 				<integer>102</integer>
 				<key>alpha</key>
-				<real>1.0</real>
+				<real>1</real>
 			</dict>
 			<key>overlayColor</key>
 			<dict>
@@ -359,11 +363,11 @@
 		<key>rainy_latenight</key>
 		<dict>
 			<key>weather</key>
-			<string>rainy</string>
-			<key>timeOfDay</key>
 			<array>
-				<string>lateNight</string>
+				<string>雨</string>
 			</array>
+			<key>timeOfDay</key>
+			<string>latenight</string>
 			<key>backgroundColor</key>
 			<dict>
 				<key>red</key>
@@ -373,7 +377,7 @@
 				<key>blue</key>
 				<integer>102</integer>
 				<key>alpha</key>
-				<real>1.0</real>
+				<real>1</real>
 			</dict>
 			<key>overlayColor</key>
 			<dict>
@@ -387,17 +391,14 @@
 				<real>0.3</real>
 			</dict>
 		</dict>
-		
-		<!-- Snowy Weather -->
 		<key>snowy_day</key>
 		<dict>
 			<key>weather</key>
-			<string>snowy</string>
-			<key>timeOfDay</key>
 			<array>
-				<string>morning</string>
-				<string>afternoon</string>
+				<string>雪</string>
 			</array>
+			<key>timeOfDay</key>
+			<string>day</string>
 			<key>backgroundColor</key>
 			<dict>
 				<key>red</key>
@@ -407,7 +408,7 @@
 				<key>blue</key>
 				<integer>206</integer>
 				<key>alpha</key>
-				<real>1.0</real>
+				<real>1</real>
 			</dict>
 			<key>overlayColor</key>
 			<dict>
@@ -424,11 +425,11 @@
 		<key>snowy_evening</key>
 		<dict>
 			<key>weather</key>
-			<string>snowy</string>
-			<key>timeOfDay</key>
 			<array>
-				<string>evening</string>
+				<string>雪</string>
 			</array>
+			<key>timeOfDay</key>
+			<string>evening</string>
 			<key>backgroundColor</key>
 			<dict>
 				<key>red</key>
@@ -438,7 +439,7 @@
 				<key>blue</key>
 				<integer>156</integer>
 				<key>alpha</key>
-				<real>1.0</real>
+				<real>1</real>
 			</dict>
 			<key>overlayColor</key>
 			<dict>
@@ -455,11 +456,11 @@
 		<key>snowy_latenight</key>
 		<dict>
 			<key>weather</key>
-			<string>snowy</string>
-			<key>timeOfDay</key>
 			<array>
-				<string>lateNight</string>
+				<string>雪</string>
 			</array>
+			<key>timeOfDay</key>
+			<string>latenight</string>
 			<key>backgroundColor</key>
 			<dict>
 				<key>red</key>
@@ -469,7 +470,7 @@
 				<key>blue</key>
 				<integer>156</integer>
 				<key>alpha</key>
-				<real>1.0</real>
+				<real>1</real>
 			</dict>
 			<key>overlayColor</key>
 			<dict>
@@ -483,17 +484,25 @@
 				<real>0.3</real>
 			</dict>
 		</dict>
-		
-		<!-- Stormy Weather -->
 		<key>stormy_day</key>
 		<dict>
 			<key>weather</key>
-			<string>stormy</string>
-			<key>timeOfDay</key>
 			<array>
-				<string>morning</string>
-				<string>afternoon</string>
+				<string>大风</string>
+				<string>强风</string>
+				<string>烈风</string>
+				<string>风暴</string>
+				<string>狂爆风</string>
+				<string>飓风</string>
+				<string>热带风暴</string>
+				<string>沙尘暴</string>
+				<string>强沙尘暴</string>
+				<string>龙卷风</string>
+				<string>疾风</string>
+				<string>劲风</string>
 			</array>
+			<key>timeOfDay</key>
+			<string>day</string>
 			<key>backgroundColor</key>
 			<dict>
 				<key>red</key>
@@ -503,7 +512,7 @@
 				<key>blue</key>
 				<integer>100</integer>
 				<key>alpha</key>
-				<real>1.0</real>
+				<real>1</real>
 			</dict>
 			<key>overlayColor</key>
 			<dict>
@@ -520,11 +529,22 @@
 		<key>stormy_evening</key>
 		<dict>
 			<key>weather</key>
-			<string>stormy</string>
-			<key>timeOfDay</key>
 			<array>
-				<string>evening</string>
+				<string>大风</string>
+				<string>强风</string>
+				<string>烈风</string>
+				<string>风暴</string>
+				<string>狂爆风</string>
+				<string>飓风</string>
+				<string>热带风暴</string>
+				<string>沙尘暴</string>
+				<string>强沙尘暴</string>
+				<string>龙卷风</string>
+				<string>疾风</string>
+				<string>劲风</string>
 			</array>
+			<key>timeOfDay</key>
+			<string>evening</string>
 			<key>backgroundColor</key>
 			<dict>
 				<key>red</key>
@@ -534,7 +554,7 @@
 				<key>blue</key>
 				<integer>101</integer>
 				<key>alpha</key>
-				<real>1.0</real>
+				<real>1</real>
 			</dict>
 			<key>overlayColor</key>
 			<dict>
@@ -551,11 +571,22 @@
 		<key>stormy_latenight</key>
 		<dict>
 			<key>weather</key>
-			<string>stormy</string>
-			<key>timeOfDay</key>
 			<array>
-				<string>lateNight</string>
+				<string>大风</string>
+				<string>强风</string>
+				<string>烈风</string>
+				<string>风暴</string>
+				<string>狂爆风</string>
+				<string>飓风</string>
+				<string>热带风暴</string>
+				<string>沙尘暴</string>
+				<string>强沙尘暴</string>
+				<string>龙卷风</string>
+				<string>疾风</string>
+				<string>劲风</string>
 			</array>
+			<key>timeOfDay</key>
+			<string>latenight</string>
 			<key>backgroundColor</key>
 			<dict>
 				<key>red</key>
@@ -565,7 +596,7 @@
 				<key>blue</key>
 				<integer>74</integer>
 				<key>alpha</key>
-				<real>1.0</real>
+				<real>1</real>
 			</dict>
 			<key>overlayColor</key>
 			<dict>
@@ -576,20 +607,20 @@
 				<key>blue</key>
 				<integer>66</integer>
 				<key>alpha</key>
-				<real>1.0</real>
+				<real>1</real>
 			</dict>
 		</dict>
-		
-		<!-- Windy Weather -->
 		<key>windy_day</key>
 		<dict>
 			<key>weather</key>
-			<string>windy</string>
-			<key>timeOfDay</key>
 			<array>
-				<string>morning</string>
-				<string>afternoon</string>
+				<string>有风</string>
+				<string>微风</string>
+				<string>和风</string>
+				<string>清风</string>
 			</array>
+			<key>timeOfDay</key>
+			<string>day</string>
 			<key>backgroundColor</key>
 			<dict>
 				<key>red</key>
@@ -599,7 +630,7 @@
 				<key>blue</key>
 				<integer>80</integer>
 				<key>alpha</key>
-				<real>1.0</real>
+				<real>1</real>
 			</dict>
 			<key>overlayColor</key>
 			<dict>
@@ -616,11 +647,14 @@
 		<key>windy_evening</key>
 		<dict>
 			<key>weather</key>
-			<string>windy</string>
-			<key>timeOfDay</key>
 			<array>
-				<string>evening</string>
+				<string>有风</string>
+				<string>微风</string>
+				<string>和风</string>
+				<string>清风</string>
 			</array>
+			<key>timeOfDay</key>
+			<string>evening</string>
 			<key>backgroundColor</key>
 			<dict>
 				<key>red</key>
@@ -630,7 +664,7 @@
 				<key>blue</key>
 				<integer>53</integer>
 				<key>alpha</key>
-				<real>1.0</real>
+				<real>1</real>
 			</dict>
 			<key>overlayColor</key>
 			<dict>
@@ -647,11 +681,14 @@
 		<key>windy_latenight</key>
 		<dict>
 			<key>weather</key>
-			<string>windy</string>
-			<key>timeOfDay</key>
 			<array>
-				<string>lateNight</string>
+				<string>有风</string>
+				<string>微风</string>
+				<string>和风</string>
+				<string>清风</string>
 			</array>
+			<key>timeOfDay</key>
+			<string>latenight</string>
 			<key>backgroundColor</key>
 			<dict>
 				<key>red</key>
@@ -661,7 +698,7 @@
 				<key>blue</key>
 				<integer>53</integer>
 				<key>alpha</key>
-				<real>1.0</real>
+				<real>1</real>
 			</dict>
 			<key>overlayColor</key>
 			<dict>
@@ -675,56 +712,6 @@
 				<real>0.3</real>
 			</dict>
 		</dict>
-	</dict>
-	
-	<!-- 天气条件枚举 -->
-	<key>weatherConditions</key>
-	<array>
-		<string>cloudy</string>
-		<string>foggy</string>
-		<string>icy</string>
-		<string>rainy</string>
-		<string>snowy</string>
-		<string>stormy</string>
-		<string>windy</string>
-	</array>
-	
-	<!-- 时间段枚举 -->
-	<key>timeOfDayPeriods</key>
-	<array>
-		<string>morning</string>
-		<string>afternoon</string>
-		<string>evening</string>
-		<string>lateNight</string>
-	</array>
-	
-	<!-- 透明度规则 -->
-	<key>alphaRules</key>
-	<dict>
-		<key>backgroundColor</key>
-		<real>1.0</real>
-		<key>overlayColor_normal</key>
-		<real>0.3</real>
-		<key>overlayColor_special</key>
-		<real>1.0</real>
-		<key>specialCases</key>
-		<array>
-			<string>cloudy_latenight</string>
-			<string>stormy_latenight</string>
-		</array>
-	</dict>
-	
-	<!-- 配置元数据 -->
-	<key>metadata</key>
-	<dict>
-		<key>version</key>
-		<string>1.0</string>
-		<key>lastUpdated</key>
-		<string>2025-06-22</string>
-		<key>totalPalettes</key>
-		<integer>21</integer>
-		<key>description</key>
-		<string>Snoopy动态背景颜色配置表，根据天气和时间自动切换背景色和覆盖层颜色</string>
 	</dict>
 </dict>
 </plist>

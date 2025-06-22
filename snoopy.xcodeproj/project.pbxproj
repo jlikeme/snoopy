@@ -3042,6 +3042,8 @@
 		41B44A072DC9154C002847F8 /* Exceptions for "snoopy" folder in "SnoopyPreview" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				ColorPaletteConfig.plist,
+				ColorPaletteManager.swift,
 				ErrorLevel.swift,
 				HEICSequencePlayer.swift,
 				OverlayManager.swift,
@@ -4413,7 +4415,7 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 1630;
+				LastSwiftUpdateCheck = 1640;
 				LastUpgradeCheck = 1640;
 				TargetAttributes = {
 					41B448FF2DC91490002847F8 = {
