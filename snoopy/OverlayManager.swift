@@ -7,11 +7,11 @@ class OverlayManager {
     private var overlayNode: SKVideoNode?
     private var overlayRepeatCount: Int = 0  // For overlay loops
 
-    private var allClips: [SnoopyClip] = []
+    private var allClips: [AnimationClipMetadata] = []
     private weak var weatherManager: WeatherManager?
-    private weak var stateManager: StateManager?
+    private weak var stateManager: StateManagerV2?
 
-    init(allClips: [SnoopyClip], weatherManager: WeatherManager, stateManager: StateManager) {
+    init(allClips: [AnimationClipMetadata], weatherManager: WeatherManager, stateManager: StateManagerV2) {
         self.allClips = allClips
         self.weatherManager = weatherManager
         self.stateManager = stateManager
@@ -81,101 +81,6 @@ class OverlayManager {
 
         debugLog("🕐 当前时间: \(currentHour):xx, 夜晚模式: \(isNightTime), 白天模式: \(isDayTime)")
         debugLog("🌤️ 当前天气: \(currentWeather), API可用: \(weatherAPIAvailable)")
-
-        // 1. 基础内容 - 始终包含
-        let basicVI = allClips.filter { clip in
-            (clip.type == SnoopyClip.ClipType.VI_Single
-                || clip.type == SnoopyClip.ClipType.VI_Intro)
-                && (clip.fileName.contains("VI001") || clip.fileName.contains("VI005") || clip.fileName.contains("VI018"))
-        }
-        candidates.append(contentsOf: basicVI)
-        debugLog("📋 基础内容: \(basicVI.map { $0.fileName })")
-
-        // 2. 夜晚内容 - 仅在 18:00-05:00 期间
-        if isNightTime {
-            let nightVI = allClips.filter { clip in
-                (clip.type == SnoopyClip.ClipType.VI_Single
-                    || clip.type == SnoopyClip.ClipType.VI_Intro)
-                    && (clip.fileName.contains("VI002") || clip.fileName.contains("VI003"))
-            }
-            candidates.append(contentsOf: nightVI)
-            debugLog("🌙 夜晚内容: \(nightVI.map { $0.fileName })")
-        }
-
-        // 3. 天气相关内容的处理
-        if weatherAPIAvailable {
-            // 天气API可用时，根据实际天气条件添加内容
-
-            // 雨天内容 - 仅在雨天
-            if currentWeather == .rainy {
-                let rainyWE = allClips.filter { clip in
-                    (clip.type == SnoopyClip.ClipType.WE_Single
-                        || clip.type == SnoopyClip.ClipType.WE_Intro)
-                        && clip.fileName.contains("WE001")
-                }
-                candidates.append(contentsOf: rainyWE)
-                debugLog("🌧️ 雨天内容: \(rainyWE.map { $0.fileName })")
-            }
-
-            // 晴天内容 - 仅在天气晴朗时
-            if currentWeather == .sunny {
-                // WE003: 05:00-18:00 期间播放
-                if isDayTime {
-                    let sunnyDayWE = allClips.filter { clip in
-                        (clip.type == SnoopyClip.ClipType.WE_Single
-                            || clip.type == SnoopyClip.ClipType.WE_Intro)
-                            && clip.fileName.contains("WE003")
-                    }
-                    candidates.append(contentsOf: sunnyDayWE)
-                    debugLog("☀️ 晴天白天内容: \(sunnyDayWE.map { $0.fileName })")
-                }
-
-                // VI004: 18:00-05:00 期间播放
-                if isNightTime {
-                    let sunnyNightVI = allClips.filter { clip in
-                        (clip.type == SnoopyClip.ClipType.VI_Single
-                            || clip.type == SnoopyClip.ClipType.VI_Intro)
-                            && clip.fileName.contains("VI004")
-                    }
-                    candidates.append(contentsOf: sunnyNightVI)
-                    debugLog("☀️ 晴天夜晚内容: \(sunnyNightVI.map { $0.fileName })")
-                }
-            }
-        } else {
-            // 天气API不可用时，将雨天和晴天内容都添加到随机列表中
-            debugLog("⚠️ 天气API不可用，启用回退模式：添加所有天气相关内容")
-
-            // 添加雨天内容
-            let rainyWE = allClips.filter { clip in
-                (clip.type == SnoopyClip.ClipType.WE_Single
-                    || clip.type == SnoopyClip.ClipType.WE_Intro) && clip.fileName.contains("WE001")
-            }
-            candidates.append(contentsOf: rainyWE)
-            debugLog("🌧️ 回退模式-雨天内容: \(rainyWE.map { $0.fileName })")
-
-            // 添加晴天内容（仍按时间限制）
-            // WE003: 05:00-18:00 期间播放
-            if isDayTime {
-                let sunnyDayWE = allClips.filter { clip in
-                    (clip.type == SnoopyClip.ClipType.WE_Single
-                        || clip.type == SnoopyClip.ClipType.WE_Intro)
-                        && clip.fileName.contains("WE003")
-                }
-                candidates.append(contentsOf: sunnyDayWE)
-                debugLog("☀️ 回退模式-晴天白天内容: \(sunnyDayWE.map { $0.fileName })")
-            }
-
-            // VI004: 18:00-05:00 期间播放
-            if isNightTime {
-                let sunnyNightVI = allClips.filter { clip in
-                    (clip.type == SnoopyClip.ClipType.VI_Single
-                        || clip.type == SnoopyClip.ClipType.VI_Intro)
-                        && clip.fileName.contains("VI004")
-                }
-                candidates.append(contentsOf: sunnyNightVI)
-                debugLog("☀️ 回退模式-晴天夜晚内容: \(sunnyNightVI.map { $0.fileName })")
-            }
-        }
 
         debugLog("🎯 最终候选片段: \(candidates.map { $0.fileName })")
         return candidates
@@ -254,18 +159,18 @@ class OverlayManager {
         } else if finishedClip.type == SnoopyClip.ClipType.VI_Loop
             || finishedClip.type == SnoopyClip.ClipType.WE_Loop
         {
-            // 检查主序列是否仍在BP循环中，而不是使用overlayRepeatCount
-            if stateManager?.isCurrentlyInBPCycle() == true {
-                // 主序列仍在BP循环中，继续播放Loop
-                nextOverlayClip = finishedClip
-                debugLog("🔁 叠加 Loop 完成，主序列仍在BP循环中，继续播放Loop")
-            } else {
-                // 主序列已退出BP循环，强制进入Outro
-                let outroType: SnoopyClip.ClipType =
-                    (finishedClip.type == SnoopyClip.ClipType.VI_Loop) ? .VI_Outro : .WE_Outro
-                nextOverlayClip = findClip(ofType: outroType, groupID: groupID)
-                debugLog("✅ 叠加 Loop 完成，主序列已退出BP循环，强制进入Outro: \(nextOverlayClip?.fileName ?? "未找到")")
-            }
+//            // 检查主序列是否仍在BP循环中，而不是使用overlayRepeatCount
+//            if stateManager?.isCurrentlyInBPCycle() == true {
+//                // 主序列仍在BP循环中，继续播放Loop
+//                nextOverlayClip = finishedClip
+//                debugLog("🔁 叠加 Loop 完成，主序列仍在BP循环中，继续播放Loop")
+//            } else {
+//                // 主序列已退出BP循环，强制进入Outro
+//                let outroType: SnoopyClip.ClipType =
+//                    (finishedClip.type == SnoopyClip.ClipType.VI_Loop) ? .VI_Outro : .WE_Outro
+//                nextOverlayClip = findClip(ofType: outroType, groupID: groupID)
+//                debugLog("✅ 叠加 Loop 完成，主序列已退出BP循环，强制进入Outro: \(nextOverlayClip?.fileName ?? "未找到")")
+//            }
         }
 
         if let nextClip = nextOverlayClip {
@@ -326,19 +231,21 @@ class OverlayManager {
     }
 
     private func findClip(ofType type: SnoopyClip.ClipType, groupID: String?) -> SnoopyClip? {
-        return allClips.first { $0.type == type && $0.groupID == groupID }
+//        return allClips.first { $0.type == type && $0.groupID == groupID }
+        return nil
     }
 
     private func findClipForPlayerItem(_ item: AVPlayerItem) -> SnoopyClip? {
-        guard let url = (item.asset as? AVURLAsset)?.url else { return nil }
-        return allClips.first { clip in
-            if let clipUrl = Bundle(for: type(of: self)).url(
-                forResource: clip.fileName, withExtension: nil)
-            {
-                return clipUrl == url
-            }
-            return false
-        }
+        return nil
+//        guard let url = (item.asset as? AVURLAsset)?.url else { return nil }
+//        return allClips.first { clip in
+//            if let clipUrl = Bundle(for: type(of: self)).url(
+//                forResource: clip.fileName, withExtension: nil)
+//            {
+//                return clipUrl == url
+//            }
+//            return false
+//        }
     }
 
     func getPlayer() -> AVQueuePlayer? {

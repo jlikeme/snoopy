@@ -13,7 +13,7 @@ class PlayerManager {
     let queuePlayer: AVQueuePlayer
     let overlayPlayer: AVQueuePlayer
     let asPlayer: AVPlayer
-    var heicSequencePlayer: HEICSequencePlayer?
+    var heicSequencePlayer: HEICSpriteSequencePlayer?
 
     // --- Player Items ---
     var playerItem: AVPlayerItem?
@@ -27,7 +27,7 @@ class PlayerManager {
         self.queuePlayer = AVQueuePlayer()
         self.overlayPlayer = AVQueuePlayer()
         self.asPlayer = AVPlayer()
-        self.heicSequencePlayer = HEICSequencePlayer()  // Initialize HEIC player
+        self.heicSequencePlayer = HEICSpriteSequencePlayer()  // Initialize HEIC player
         setupPlayerNotifications()
     }
 

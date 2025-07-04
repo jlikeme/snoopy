@@ -75,7 +75,9 @@ class WeatherManager {
             return
         }
 
+        return
         debugLog("🌐 开始获取天气信息...")
+        
 
         // 直接通过高德IP定位API获取地区编码（无需手动获取IP）
         getAdcodeFromCurrentIP(apiKey: apiKey) { [weak self] adcode in

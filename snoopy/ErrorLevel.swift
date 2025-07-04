@@ -75,7 +75,7 @@ func appSupportPath() -> String {
 
 // swiftlint:disable:next identifier_name
 func Log(level: ErrorLevel, message: String) {
-    errorMessages.append(LogMessage(level: level, message: message))
+    // errorMessages.append(LogMessage(level: level, message: message))
 
     // We report errors to Console.app
     if level == .error {
@@ -96,14 +96,17 @@ func Log(level: ErrorLevel, message: String) {
 }
 
 func logToConsole(_ message: String) {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "HH:mm:ss.SSS"
+    let timestamp = formatter.string(from: Date())
+    let msgWithTime = "[\(timestamp)] " + message
     if #available(OSX 10.12, *) {
         // This is faster when available
         let log = OSLog(subsystem: Bundle.main.bundleIdentifier!, category: "Screensaver")
-        os_log("Snoopy: %{public}@", log: log, type: .default, message)
+        os_log("Snoopy: %{public}@", log: log, type: .default, msgWithTime)
     } else {
-        NSLog("Snoopy: \(message)")
+        NSLog("Snoopy: %@", msgWithTime)
     }
-
 }
 
 func debugLog(_ message: String) {

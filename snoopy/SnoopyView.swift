@@ -6,18 +6,18 @@ import SpriteKit
 class SnoopyScreenSaverView: ScreenSaverView, SKSceneDelegate {
 
     // 所有管理器
-    private var stateManager: StateManager!
+    private var stateManager: StateManagerV2!
     private var sceneManager: SceneManager!
     private var playerManager: PlayerManager!
-    private var playbackManager: PlaybackManager!
+    private var playbackManager: PlaybackManagerV2!
     private var transitionManager: TransitionManager!
-    private var sequenceManager: SequenceManager!
+    private var sequenceManager: SequenceManagerV2!
     private var overlayManager: OverlayManager!
     private var weatherManager: WeatherManager!
 
     private var skView: SKView!
     private var isSetupComplete = false
-    private var allClips: [SnoopyClip] = []
+    private var allClips: [AnimationClipMetadata] = []
 
     // MARK: - 初始化
 
@@ -55,7 +55,7 @@ class SnoopyScreenSaverView: ScreenSaverView, SKSceneDelegate {
         addSubview(skView)
 
         // 2. 初始化基本管理器
-        stateManager = StateManager()
+        stateManager = StateManagerV2()
         playerManager = PlayerManager()
         weatherManager = WeatherManager()
         sceneManager = SceneManager(bounds: bounds, weatherManager: weatherManager)
@@ -64,7 +64,9 @@ class SnoopyScreenSaverView: ScreenSaverView, SKSceneDelegate {
         Task {
             do {
                 debugLog("Loading clips...")
-                self.allClips = try await SnoopyClip.loadClips()
+//                self.allClips = try await SnoopyClip.loadClips()
+                let assetClips = AssetClipLoader.loadAllClips()
+                self.allClips = assetClips
                 debugLog("Clips loaded: \(self.allClips.count)")
 
                 guard !self.allClips.isEmpty else {
@@ -77,7 +79,7 @@ class SnoopyScreenSaverView: ScreenSaverView, SKSceneDelegate {
                     guard let self = self else { return }
 
                     // 初始化依赖序列的管理器
-                    self.sequenceManager = SequenceManager(stateManager: self.stateManager)
+                    self.sequenceManager = SequenceManagerV2()
                     self.stateManager.allClips = self.allClips
 
                     // 初始化需要视频片段的管理器
@@ -94,7 +96,7 @@ class SnoopyScreenSaverView: ScreenSaverView, SKSceneDelegate {
                     )
 
                     // 最后创建协调一切的播放管理器
-                    self.playbackManager = PlaybackManager(
+                    self.playbackManager = PlaybackManagerV2(
                         stateManager: self.stateManager,
                         playerManager: self.playerManager,
                         sceneManager: self.sceneManager,
@@ -122,7 +124,8 @@ class SnoopyScreenSaverView: ScreenSaverView, SKSceneDelegate {
                     self.sceneManager.setupScene(
                         mainPlayer: self.playerManager.queuePlayer,
                         overlayPlayer: self.playerManager.overlayPlayer,
-                        asPlayer: self.playerManager.asPlayer
+                        asPlayer: self.playerManager.asPlayer,
+                        allClips: assetClips
                     )
 
                     // 6. 在场景中设置覆盖节点
@@ -256,28 +259,6 @@ class SnoopyScreenSaverView: ScreenSaverView, SKSceneDelegate {
 
     private func setupInitialStateAndPlay() {
         debugLog("Setting up initial state...")
-        guard let initialAS = sequenceManager.findRandomClip(ofType: .AS) else {
-            debugLog("Error: No AS clips found to start.")
-            return
-        }
-        debugLog("Initial AS: \(initialAS.fileName)")
-
-        // 为初始AS设置随机转场编号，排除006
-        let availableTransitionNumbers = allClips.compactMap { clip in
-            guard clip.type == .TM_Hide else { return nil }
-            return clip.number
-        }.filter { $0 != "006" }  // 排除006编号
-
-        if let randomNumber = availableTransitionNumbers.randomElement() {
-            stateManager.lastTransitionNumber = randomNumber
-            debugLog("🎲 为初始AS设置随机转场编号: \(randomNumber)")
-        } else {
-            debugLog("⚠️ 警告：无法找到可用的转场编号")
-        }
-
-        stateManager.currentStateType = .playingAS
-        stateManager.currentClipsQueue = [initialAS]
-        stateManager.currentClipIndex = 0
-        playbackManager.playNextClipInQueue()
+        playbackManager.startInitialPlayback()
     }
 }

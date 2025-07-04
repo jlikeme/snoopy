@@ -16,6 +16,7 @@ class SceneManager {
     private(set) var halftoneNode: SKSpriteNode?
     private(set) var backgroundImageNode: SKSpriteNode?
     private(set) var videoNode: SKVideoNode?
+    private(set) var heicVideoNode: SKSpriteNode?
     private(set) var overlayNode: SKVideoNode?
     private(set) var asVideoNode: SKVideoNode?  // For AS/SS content
     private(set) var cropNode: SKCropNode?
@@ -26,6 +27,7 @@ class SceneManager {
     private let scale: CGFloat = 720.0 / 1080.0
     private let offside: CGFloat = 180.0 / 1080.0
     private var backgroundImages: [String] = []
+    private var backgroundClips: [AnimationClipMetadata] = []
 
     // --- Color Palette Manager ---
     private var colorPaletteManager: ColorPaletteManager
@@ -36,10 +38,10 @@ class SceneManager {
         self.weatherManager = weatherManager
         self.skView = SKView(frame: bounds)
         self.scene = SKScene(size: bounds.size)
-        loadBackgroundImages()
     }
 
-    func setupScene(mainPlayer: AVQueuePlayer, overlayPlayer: AVQueuePlayer, asPlayer: AVPlayer) {
+    func setupScene(mainPlayer: AVQueuePlayer, overlayPlayer: AVQueuePlayer, asPlayer: AVPlayer, allClips: [AnimationClipMetadata]) {
+        loadBackgroundImages(allClips: allClips)
         guard let skView = self.skView, let scene = self.scene else { return }
 
         skView.wantsLayer = true
@@ -96,11 +98,21 @@ class SceneManager {
         scene.addChild(videoNode)
         self.videoNode = videoNode
 
+        // Layer 15: TM Outline Node - 显示在所有内容之上
+        let heicVideoNode = SKSpriteNode(color: .clear, size: scene.size)
+        heicVideoNode.position = CGPoint(x: scene.size.width / 2, y: scene.size.height / 2)
+        heicVideoNode.zPosition = 4
+        heicVideoNode.name = "heicVideoNode"
+        heicVideoNode.isHidden = true  // 初始隐藏
+        heicVideoNode.blendMode = .alpha
+        scene.addChild(heicVideoNode)
+        self.heicVideoNode = heicVideoNode
+
         // Layer 4: Overlay Node (For VI/WE) - Initialize WITH player
         let overlayNode = SKVideoNode(avPlayer: overlayPlayer)
         overlayNode.position = CGPoint(x: scene.size.width / 2, y: scene.size.height / 2)
         overlayNode.size = scene.size  // Adjust size/position as needed for overlays
-        overlayNode.zPosition = 4
+        overlayNode.zPosition = 5
         overlayNode.name = "overlayNode"
         overlayNode.isHidden = true  // Initially hidden
         scene.addChild(overlayNode)
@@ -133,22 +145,21 @@ class SceneManager {
         self.tmOutlineSpriteNode = outlineNode
 
         skView.presentScene(scene)
+        createTMMaskNode(size: scene.size)
+        updateBackgrounds()
     }
 
-    private func loadBackgroundImages() {
-        guard let resourcePath = Bundle(for: type(of: self)).resourcePath else { return }
-        let fileManager = FileManager.default
-        do {
-            let files = try fileManager.contentsOfDirectory(atPath: resourcePath)
-            // Filter for IS background images only, excluding TM animation files
-            let heicFiles = files.filter { file in
-                file.hasSuffix(".heic") && file.contains("_IS")
+    private func loadBackgroundImages(allClips: [AnimationClipMetadata]) {
+        for clip in allClips {
+            if clip.clipType == .idleScene {
+                self.backgroundClips.append(clip)
             }
-            self.backgroundImages = heicFiles
-            debugLog("🖼️ Loaded \(heicFiles.count) IS background images")
-        } catch {
-            debugLog("Error reading Resources directory: \(error.localizedDescription)")
         }
+        if self.backgroundClips.isEmpty {
+            debugLog("❌ No idleScene clips found")
+            return
+        }
+        debugLog("🔦 Loaded \(self.backgroundClips.count) background clips")
     }
 
     func updateBackgrounds() {
@@ -195,11 +206,12 @@ class SceneManager {
     }
 
     private func updateBackgroundImage() {
-        guard let imageNode = self.backgroundImageNode, !backgroundImages.isEmpty,
+        guard let imageNode = self.backgroundImageNode, !backgroundClips.isEmpty,
             let scene = self.scene
         else { return }
 
-        let randomImageName = backgroundImages.randomElement()!
+        let randomImageClip = backgroundClips.randomElement()!
+        let randomImageName = (randomImageClip.fullFolderPath as NSString).appendingPathComponent(randomImageClip.assetBaseName + "_00.heic")
 
         // 使用 .utility QoS 来避免优先级反转
         DispatchQueue.global(qos: .utility).async { [weak self] in
