@@ -397,16 +397,9 @@ class HEICSpriteSequencePlayer {
         stop()
     }
 
-    private func logWithTime(_ message: String) {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm:ss.SSS"
-        let timestamp = formatter.string(from: Date())
-        debugLog("[\(timestamp)] " + message)
-    }
-
     // 加载 AnimationClipMetadata - 异步
     func loadSequence(clip: AnimationClipMetadata, completion: @escaping (Bool) -> Void) {
-        logWithTime("🎬 HEICSpriteSequencePlayer: 开始异步加载序列 \(clip.assetFolder)")
+        debugLog("🎬 HEICSpriteSequencePlayer: 开始异步加载序列 \(clip.assetFolder)")
         self.sprites = clip.phases.first?.sprites ?? []
         self.assetFolder = clip.assetFolder
         self.fullFolderPath = clip.fullFolderPath
@@ -421,9 +414,9 @@ class HEICSpriteSequencePlayer {
             DispatchQueue.main.async {
                 self.textures = loadedTextures
                 if loadedTextures.isEmpty {
-                    self.logWithTime("❌ HEICSpriteSequencePlayer: 纹理加载失败 \(clip.assetFolder)")
+                    debugLog("❌ HEICSpriteSequencePlayer: 纹理加载失败 \(clip.assetFolder)")
                 } else {
-                    self.logWithTime("✅ HEICSpriteSequencePlayer: 纹理加载成功 \(clip.assetFolder)，共 \(loadedTextures.count) 帧")
+                    debugLog("✅ HEICSpriteSequencePlayer: 纹理加载成功 \(clip.assetFolder)，共 \(loadedTextures.count) 帧")
                 }
                 completion(!loadedTextures.isEmpty)
             }
@@ -554,6 +547,198 @@ class HEICSpriteSequencePlayer {
         if let node = targetNode {
             node.texture = textures[currentIndex]
 //            debugLog("🎬 HEICSpriteSequencePlayer: 更新帧 \(currentIndex) (时间: \(currentTime.seconds)s)")
+        }
+        currentIndex += 1
+    }
+}
+
+
+
+// MARK: - 新的基于 AnimationClipMetadata 的序列播放器
+
+class HEICSpriteSequenceMaskPlayer {
+    private var maskTextures: [SKTexture] = []
+    private var outlineTextures: [SKTexture] = []
+    private var currentIndex: Int = 0
+    private var animationTimer: Timer?
+    private let frameRate: Double = 24.0  // 24 fps
+    private var isPlaying: Bool = false
+    private var completion: (() -> Void)?
+
+    private var maskNode: SKSpriteNode?
+    private var outlineNode: SKSpriteNode?
+
+    private var clip: AnimationClipMetadata?
+
+    init(maskNode: SKSpriteNode, outlineNode: SKSpriteNode) {
+        self.maskNode = maskNode
+        self.outlineNode = outlineNode
+    }
+
+    deinit {
+        stop()
+    }
+
+    // 加载 AnimationClipMetadata - 异步
+    func loadSequence(clip: AnimationClipMetadata, completion: @escaping (Bool) -> Void) {
+        debugLog("🎬 HEICSpriteSequenceMaskPlayer: 开始异步加载序列 \(clip.assetFolder)")
+        self.clip = clip
+        maskTextures.removeAll()
+        outlineTextures.removeAll()
+
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self = self else {
+                DispatchQueue.main.async { completion(false) }
+                return
+            }
+            let loadedMaskTextures = self.loadTexturesAsync(spritePlaneType: "mask")
+            let loadedOutlineTextures = self.loadTexturesAsync(spritePlaneType: "foregroundEffect")
+            DispatchQueue.main.async {
+                self.maskTextures = loadedMaskTextures
+                self.outlineTextures = loadedOutlineTextures
+                if loadedMaskTextures.isEmpty || loadedOutlineTextures.isEmpty {
+                    debugLog("❌ HEICSpriteSequenceMaskPlayer: 纹理加载失败 \(clip.assetFolder)")
+                } else {
+                    debugLog("✅ HEICSpriteSequenceMaskPlayer: 纹理加载成功 \(clip.assetFolder)，共 \(loadedMaskTextures.count) 帧")
+                }
+                completion(!loadedMaskTextures.isEmpty)
+            }
+        }
+    }
+
+    // 同步版本
+    func loadSequence(clip: AnimationClipMetadata) -> Bool {
+        let semaphore = DispatchSemaphore(value: 0)
+        var result = false
+        loadSequence(clip: clip) { success in
+            result = success
+            semaphore.signal()
+        }
+        semaphore.wait()
+        return result
+    }
+
+    // 加载所有帧纹理
+    private func loadTexturesAsync(spritePlaneType: String) -> [SKTexture] {
+        var textures: [SKTexture] = []
+        for sprite in self.clip?.phases.first?.sprites ?? [] {
+            let fullFolderPath = self.clip?.fullFolderPath ?? ""
+            if sprite.plane != spritePlaneType {
+                continue
+            }
+            let baseName = sprite.assetBaseName
+            let digitCount = sprite.frameIndexDigitCount
+            let startFrame = sprite.customTiming?.start ?? 0
+            let endFrame = sprite.customTiming?.end ?? 0
+            for frameIndex in startFrame...endFrame {
+                let fileName = String(format: "%@_%0*d", baseName, digitCount, frameIndex)
+                let resourcePath = (fullFolderPath as NSString).appendingPathComponent(fileName)
+                if let url = Bundle.main.url(forResource: resourcePath, withExtension: "heic") ??
+                    Bundle(for: type(of: self)).url(forResource: resourcePath, withExtension: "heic") {
+                    do {
+                        let imageData = try Data(contentsOf: url)
+                        if let image = NSImage(data: imageData) {
+                            let texture = SKTexture(image: image)
+                            texture.filteringMode = .linear
+                            textures.append(texture)
+                        }
+                    } catch {
+                        debugLog("❌ HEICSpriteSequenceMaskPlayer: 加载帧失败 \(fileName).heic: \(error.localizedDescription)")
+                    }
+                } else {
+                    debugLog("❌ HEICSpriteSequenceMaskPlayer: 找不到帧文件 \(resourcePath).heic")
+                }
+            }
+        }
+        return textures
+    }
+
+    // 播放序列
+    func play(completion: (() -> Void)? = nil) {
+        guard !maskTextures.isEmpty && !outlineTextures.isEmpty else {
+            debugLog("❌ HEICSpriteSequenceMaskPlayer: 无法播放，纹理序列为空")
+            completion?()
+            return
+        }
+        self.completion = completion
+        stop()
+        currentIndex = 0
+        isPlaying = true
+        self.maskNode?.texture = maskTextures[0]
+        self.outlineNode?.texture = outlineTextures[0]
+        let frameInterval = 1.0 / frameRate
+        animationTimer = Timer.scheduledTimer(withTimeInterval: frameInterval, repeats: true) { [weak self] _ in
+            self?.updateFrame()
+        }
+        debugLog("▶️ HEICSpriteSequenceMaskPlayer: 开始播放，共 \(maskTextures.count) 帧，帧率 \(frameRate) fps")
+    }
+
+    func stop() {
+        animationTimer?.invalidate()
+        animationTimer = nil
+        isPlaying = false
+        debugLog("⏹️ HEICSpriteSequenceMaskPlayer: 停止播放")
+    }
+
+    func pause() {
+        animationTimer?.invalidate()
+        animationTimer = nil
+        isPlaying = false
+        debugLog("⏸️ HEICSpriteSequenceMaskPlayer: 暂停播放")
+    }
+
+    func resume() {
+        guard !maskTextures.isEmpty && !outlineTextures.isEmpty && !isPlaying else { return }
+        isPlaying = true
+        let frameInterval = 1.0 / frameRate
+        animationTimer = Timer.scheduledTimer(withTimeInterval: frameInterval, repeats: true) { [weak self] _ in
+            self?.updateFrame()
+        }
+        debugLog("▶️ HEICSpriteSequenceMaskPlayer: 恢复播放")
+    }
+
+    func seek(to time: CMTime) {
+        let seconds = CMTimeGetSeconds(time)
+        let frameIndex = Int(seconds * frameRate)
+        guard frameIndex >= 0 && frameIndex < maskTextures.count else { return }
+        currentIndex = frameIndex
+        if let node = self.maskNode {
+            node.texture = maskTextures[currentIndex]
+        }
+        if let outlineNode = self.outlineNode, currentIndex < outlineTextures.count {
+            outlineNode.texture = outlineTextures[currentIndex]
+        }
+        debugLog("⏭️ HEICSpriteSequenceMaskPlayer: 跳转到帧 \(frameIndex) (时间: \(seconds)s)")
+    }
+
+    var rate: Float {
+        return isPlaying ? 1.0 : 0.0
+    }
+
+    var duration: CMTime {
+        guard !maskTextures.isEmpty else { return .zero }
+        let totalSeconds = Double(maskTextures.count) / frameRate
+        return CMTime(seconds: totalSeconds, preferredTimescale: CMTimeScale(frameRate))
+    }
+
+    var currentTime: CMTime {
+        let currentSeconds = Double(currentIndex) / frameRate
+        return CMTime(seconds: currentSeconds, preferredTimescale: CMTimeScale(frameRate))
+    }
+    
+    private func updateFrame() {
+        guard isPlaying && !maskTextures.isEmpty && !outlineTextures.isEmpty else { return }
+        if currentIndex >= maskTextures.count {
+            stop()
+            debugLog("✅ HEICSpriteSequenceMaskPlayer: 播放完成")
+            completion?()
+            return
+        }
+        if let node = self.maskNode {
+            node.texture = maskTextures[currentIndex]
+        }
+        if let outlineNode = self.outlineNode, currentIndex < outlineTextures.count {
+            outlineNode.texture = outlineTextures[currentIndex]
         }
         currentIndex += 1
     }

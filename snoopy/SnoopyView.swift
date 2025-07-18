@@ -79,7 +79,7 @@ class SnoopyScreenSaverView: ScreenSaverView, SKSceneDelegate {
                     guard let self = self else { return }
 
                     // 初始化依赖序列的管理器
-                    self.sequenceManager = SequenceManagerV2()
+                    self.sequenceManager = SequenceManagerV2(stateManager: self.stateManager, allClips: self.allClips)
                     self.stateManager.allClips = self.allClips
 
                     // 初始化需要视频片段的管理器
@@ -122,9 +122,7 @@ class SnoopyScreenSaverView: ScreenSaverView, SKSceneDelegate {
 
                     // 5. 在场景中设置视频节点
                     self.sceneManager.setupScene(
-                        mainPlayer: self.playerManager.queuePlayer,
-                        overlayPlayer: self.playerManager.overlayPlayer,
-                        asPlayer: self.playerManager.asPlayer,
+                        playerManager: self.playerManager,
                         allClips: assetClips
                     )
 

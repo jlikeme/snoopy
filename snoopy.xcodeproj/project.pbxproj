@@ -8,7 +8,6 @@
 
 /* Begin PBXBuildFile section */
 		A121A2CD2E13AD02003F04BE /* DefaultAssetBundle in Resources */ = {isa = PBXBuildFile; fileRef = A121A2CC2E13AD02003F04BE /* DefaultAssetBundle */; };
-		A121A2CF2E13AD27003F04BE /* DefaultAssetBundleV2 in Resources */ = {isa = PBXBuildFile; fileRef = A121A2CE2E13AD27003F04BE /* DefaultAssetBundleV2 */; };
 		A121A2D22E13AD4E003F04BE /* halftone_pattern.png in Resources */ = {isa = PBXBuildFile; fileRef = A121A2D02E13AD4E003F04BE /* halftone_pattern.png */; };
 		A121A2D32E13AD4E003F04BE /* Config.plist in Resources */ = {isa = PBXBuildFile; fileRef = A121A2D12E13AD4E003F04BE /* Config.plist */; };
 		A121A4552E1667EC003F04BE /* Config.plist in Resources */ = {isa = PBXBuildFile; fileRef = A121A2D12E13AD4E003F04BE /* Config.plist */; };
@@ -252,6 +251,8 @@
 			);
 			mainGroup = 5151C0DE2D38ECB60077D0D8;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 5151C0E92D38ECB60077D0D8 /* Products */;
 			projectDirPath = "";
@@ -282,7 +283,6 @@
 			files = (
 				A121A2D22E13AD4E003F04BE /* halftone_pattern.png in Resources */,
 				A121A2D32E13AD4E003F04BE /* Config.plist in Resources */,
-				A121A2CF2E13AD27003F04BE /* DefaultAssetBundleV2 in Resources */,
 				A121A2CD2E13AD02003F04BE /* DefaultAssetBundle in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

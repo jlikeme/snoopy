@@ -14,11 +14,15 @@ class PlayerManager {
     let overlayPlayer: AVQueuePlayer
     let asPlayer: AVPlayer
     var heicSequencePlayer: HEICSpriteSequencePlayer?
+    let maskPlayer: AVPlayer
+    let outlinePlayer: AVPlayer
 
     // --- Player Items ---
     var playerItem: AVPlayerItem?
     var overlayPlayerItem: AVPlayerItem?
     var asPlayerItem: AVPlayerItem?
+    var maskPlayerItem: AVPlayerItem?
+    var outlinePlayerItem: AVPlayerItem?
 
     // --- Overlay State ---
     var overlayRepeatCount: Int = 0
@@ -28,6 +32,8 @@ class PlayerManager {
         self.overlayPlayer = AVQueuePlayer()
         self.asPlayer = AVPlayer()
         self.heicSequencePlayer = HEICSpriteSequencePlayer()  // Initialize HEIC player
+        self.maskPlayer = AVPlayer()
+        self.outlinePlayer = AVPlayer()
         setupPlayerNotifications()
     }
 

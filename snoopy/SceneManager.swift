@@ -22,6 +22,8 @@ class SceneManager {
     private(set) var cropNode: SKCropNode?
     private(set) var tmMaskSpriteNode: SKSpriteNode?
     private(set) var tmOutlineSpriteNode: SKSpriteNode?
+    private(set) var maskVideoNode: SKVideoNode?
+    private(set) var outlineVideoNode: SKVideoNode?
 
     // --- Properties ---
     private let scale: CGFloat = 720.0 / 1080.0
@@ -40,7 +42,7 @@ class SceneManager {
         self.scene = SKScene(size: bounds.size)
     }
 
-    func setupScene(mainPlayer: AVQueuePlayer, overlayPlayer: AVQueuePlayer, asPlayer: AVPlayer, allClips: [AnimationClipMetadata]) {
+    func setupScene(playerManager: PlayerManager, allClips: [AnimationClipMetadata]) {
         loadBackgroundImages(allClips: allClips)
         guard let skView = self.skView, let scene = self.scene else { return }
 
@@ -90,7 +92,7 @@ class SceneManager {
         self.backgroundImageNode = imageNode
 
         // Layer 3: Main Video Node - Initialize WITH player (用于播放BP、AP、CM、ST、RPH)
-        let videoNode = SKVideoNode(avPlayer: mainPlayer)
+        let videoNode = SKVideoNode(avPlayer: playerManager.queuePlayer)
         videoNode.position = CGPoint(x: scene.size.width / 2, y: scene.size.height / 2)
         videoNode.size = scene.size
         videoNode.zPosition = 3  // 常规内容在Layer 3
@@ -109,7 +111,7 @@ class SceneManager {
         self.heicVideoNode = heicVideoNode
 
         // Layer 4: Overlay Node (For VI/WE) - Initialize WITH player
-        let overlayNode = SKVideoNode(avPlayer: overlayPlayer)
+        let overlayNode = SKVideoNode(avPlayer: playerManager.overlayPlayer)
         overlayNode.position = CGPoint(x: scene.size.width / 2, y: scene.size.height / 2)
         overlayNode.size = scene.size  // Adjust size/position as needed for overlays
         overlayNode.zPosition = 5
@@ -126,7 +128,7 @@ class SceneManager {
         self.cropNode = cropNode
 
         // AS/SS Video Node - Initialize WITH independent AS player
-        let asVideoNode = SKVideoNode(avPlayer: asPlayer)
+        let asVideoNode = SKVideoNode(avPlayer: playerManager.asPlayer)
         asVideoNode.position = CGPoint.zero  // Position relative to cropNode
         asVideoNode.size = scene.size
         asVideoNode.name = "asVideoNode"
@@ -143,6 +145,20 @@ class SceneManager {
         outlineNode.blendMode = .alpha
         scene.addChild(outlineNode)
         self.tmOutlineSpriteNode = outlineNode
+        
+        let maskNode = SKSpriteNode(color: .clear, size: scene.size)
+        maskNode.position = .zero  // 相对于cropNode的位置
+        self.tmMaskSpriteNode = maskNode
+        
+        let outlineVideoNode = SKVideoNode(avPlayer: playerManager.outlinePlayer)
+        outlineVideoNode.size = scene.size
+        outlineVideoNode.position = CGPoint(x: scene.size.width / 2, y: scene.size.height / 2)
+        outlineVideoNode.zPosition = 15
+//        outlineVideoNode.yScale = -1
+        outlineVideoNode.isHidden = true
+        outlineVideoNode.name = "tmOutlineVideoNode"
+        scene.addChild(outlineVideoNode)
+        self.outlineVideoNode = outlineVideoNode
 
         skView.presentScene(scene)
         createTMMaskNode(size: scene.size)
@@ -260,6 +276,18 @@ class SceneManager {
                 debugLog("🖼️ 背景图片更新为: \(randomImageName)")
             }
         }
+    }
+    
+    func assignMaskNode() {
+//        self.outlineVideoNode?.isHidden = false
+        self.tmOutlineSpriteNode?.isHidden = false
+        self.cropNode?.maskNode = tmMaskSpriteNode
+    }
+    
+    func unassignMaskNode() {
+//        self.outlineVideoNode?.isHidden = true
+        self.tmOutlineSpriteNode?.isHidden = true
+        self.cropNode?.maskNode = nil
     }
 
     func createTMMaskNode(size: CGSize) {

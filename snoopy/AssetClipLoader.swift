@@ -14,7 +14,7 @@ enum AnimationClipType: String {
     case additionalPose    // AP: Additional Pose，角色附加动作（Intro/Loop/Outro），描述角色的动态行为
     case activeScene       // AS: Active Scene，活动场景，描述场景动画，通常为 oneShot
     case idleScene         // IS: Idle Scene，静止场景/背景，通常为 oneShot，可能有偏移
-    case sceneTransition   // ST: Scene Transition，场景转场动画，分为 hide/reveal 等阶段
+    case sceneTransitionPose   // ST: Scene Transition Pose，场景转场动画，分为 hide/reveal 等阶段
     case transitionMask    // TM: Transition Mask，转场遮罩/遮罩动画，通常为多帧遮罩序列
     case customMotion      // CM: Custom/Complex Motion，自定义/复杂动作或转场，通常带有 from/to 信息
     case moment            // CM: Character Moment，角色特殊时刻/复杂转场
@@ -147,17 +147,17 @@ class AssetClipLoader {
         // 遍历result，按clipType分组
         var groupedClips: [AnimationClipGroupType: [AnimationClipMetadata]] = [:]
         for clip in result {
-            groupedClips[clip.clipType.groupType, default: []].append(clip)
+            groupedClips[clip.groupType, default: []].append(clip)
         }
-        // // 打印分组结果
-        // for (clipGroupType, clips) in groupedClips {
-        //     print("🔦 Clip type: \(clipGroupType), count: \(clips.count)")
-        //     for clip in clips {
-        //         if clip.clipType.groupType != .other {
-        //             print("🔦 Clip: \(clip.assetFolder)")
-        //         }
-        //     }
-        // }
+         // 打印分组结果
+         for (clipGroupType, clips) in groupedClips {
+             print("🔦 Clip type: \(clipGroupType), count: \(clips.count)")
+             for clip in clips {
+                 if clip.groupType != .other {
+                     print("🔦 Clip: \(clip.assetFolder)")
+                 }
+             }
+         }
         return result
     }
 
@@ -207,12 +207,8 @@ class AssetClipLoader {
             // SceneTransitionCategory
             return parseSceneTransitionCategory(_0: _0, assetFolder: assetFolder, fullFolderPath: fullFolderPath)
         case "spriteTransitionParameters":
-            // TM: Transition Mask（新格式）
-            return parseGenericOneShot(content: content, _0: _0, assetFolder: assetFolder, type: .transitionMask, fullFolderPath: fullFolderPath)
-        // 通用 oneShotSprites 结构类型
-        case "transitionMask":
-            // TM
-            return parseGenericOneShot(content: content, _0: _0, assetFolder: assetFolder, type: .transitionMask, fullFolderPath: fullFolderPath)
+            // TM: Transition Mask
+            return parseTransitionMask(content: content, _0: _0, assetFolder: assetFolder, fullFolderPath: fullFolderPath)
         case "customMotion":
             // CM
             return parseGenericOneShot(content: content, _0: _0, assetFolder: assetFolder, type: .customMotion, fullFolderPath: fullFolderPath)
@@ -471,9 +467,10 @@ class AssetClipLoader {
         let phases = sprites.map { AnimationPhase(phaseType: .oneShot, sprites: [$0]) }
         let transitionPhase = _0["transitionPhase"] as? String
         let transitionCategoryIDs = _0["transitionCategoryIDs"] as? [String]
+        let poseID = "standardReactionTransitionStyleID" //目前所有的ST poseID都是这个
         let result = phases.map { phase in
             AnimationClipMetadata(
-                clipType: .sceneTransition,
+                clipType: .sceneTransitionPose,
                 phases: [phase],
                 startNode: nil,
                 endNode: nil,
@@ -494,7 +491,7 @@ class AssetClipLoader {
                 transitionCategoryInfo: nil,
                 ignoresSceneOffset: nil,
                 isFullscreenEffect: nil,
-                poseID: phase.sprites.first?.assetBaseName ?? ""
+                poseID: poseID
             )
         }
         return result
@@ -707,6 +704,8 @@ class AssetClipLoader {
             revealStyleID = parametersID
         }
         let transitionCategoryIDs = _0["transitionCategoryIDs"] as? [String]
+        // 使用 assetFolder去掉后缀.icasset 作为 poseID
+        let poseID = assetFolder.replacingOccurrences(of: ".icasset", with: "")
         let result = [
             AnimationClipMetadata(
                 clipType: .sceneTransitionPair,
@@ -730,7 +729,7 @@ class AssetClipLoader {
                 transitionCategoryInfo: nil,
                 ignoresSceneOffset: nil,
                 isFullscreenEffect: nil,
-                poseID: assetFolder
+                poseID: poseID
             )
         ]
         return result
@@ -806,6 +805,8 @@ class AssetClipLoader {
             preventsIdleSceneChange: preventsIdle
         )
         let transitionCategoryIDs = _0["transitionCategoryIDs"] as? [String]
+        // 使用 assetFolder去掉后缀.icasset 作为 poseID
+        let poseID = assetFolder.replacingOccurrences(of: ".icasset", with: "")
         let result = [
             AnimationClipMetadata(
                 clipType: .category,
@@ -829,7 +830,7 @@ class AssetClipLoader {
                 transitionCategoryInfo: info,
                 ignoresSceneOffset: nil,
                 isFullscreenEffect: nil,
-                poseID: assetFolder
+                poseID: poseID
             )
         ]
         return result
@@ -976,23 +977,70 @@ class AssetClipLoader {
         }
         return result.isEmpty ? nil : result
     }
+    
+    private static func parseTransitionMask(content: [String: Any], _0: [String: Any], assetFolder: String, fullFolderPath: String) -> [AnimationClipMetadata]? {
+        guard let oneShotSpritesDict = content["oneShotSprites"] as? [String: Any],
+              let oneShotSprites = oneShotSpritesDict["oneShotSprites"] as? [String: Any],
+              let spritesArr = oneShotSprites["sprites"] as? [[String: Any]] else { return nil }
+        
+        let loopable = oneShotSprites["loopable"] as? Bool
+        let transitionCategoryIDs = _0["transitionCategoryIDs"] as? [String]
+        
+        // 解析所有sprites（包括mask和outline）
+        let sprites = spritesArr.compactMap { parseSprite($0, loopable: loopable, fullFolderPath: fullFolderPath) }
+        
+        // 创建单个phase包含所有sprites
+        let phase = AnimationPhase(phaseType: .oneShot, sprites: sprites)
+        // 使用 assetFolder去掉后缀.icasset 作为 poseID
+        let poseID = assetFolder.replacingOccurrences(of: ".icasset", with: "")
+
+        let result = [AnimationClipMetadata(
+            clipType: .transitionMask,
+            phases: [phase],
+            startNode: nil,
+            endNode: nil,
+            transitionPhase: nil,
+            transitionCategoryIDs: transitionCategoryIDs,
+            sceneOffset: nil,
+            assetFolder: assetFolder,
+            fullFolderPath: fullFolderPath,
+            startCharacterBasePoseID: nil,
+            endCharacterBasePoseID: nil,
+            reactionStyleID: nil,
+            reactionTrigger: nil,
+            hideStyleID: nil,
+            revealStyleID: nil,
+            backgroundColor: nil,
+            overlayColor: nil,
+            paletteInfo: nil,
+            transitionCategoryInfo: nil,
+            ignoresSceneOffset: nil,
+            isFullscreenEffect: nil,
+            poseID: poseID
+        )]
+        
+        return result
+    }
 }
 
-extension AnimationClipType {
+extension AnimationClipMetadata {
     var groupType: AnimationClipGroupType {
-        switch self {
+        switch self.clipType {
         case .additionalPoseLoop, .basePose, .reactionPose:
 //        case .additionalPoseLoop, .basePose:
             return .pose
         case .poseTransition, .moment, .reactionTransition, .additionalPoseIntro, .additionalPoseOutro:
             return .transition
+        case .sceneTransitionPose:
+            if self.transitionPhase == "reveal" {
+                return .pose
+            } else {
+                return .other
+            }
         default:
             return .other
         }
     }
-}
-
-extension AnimationClipMetadata {
     var assetBaseName: String {
         return self.phases.first?.sprites.first?.assetBaseName ?? ""
     }

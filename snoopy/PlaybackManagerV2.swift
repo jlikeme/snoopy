@@ -22,6 +22,8 @@ class PlaybackManagerV2 {
     private let transitionManager: TransitionManager
     private var sequenceManager: SequenceManagerV2!
     private var overlayManager: OverlayManager!  // Will be set after initialization
+    private var asVideoNodeNeedHide = false
+    private var currentMaskPlayer: HEICSpriteSequenceMaskPlayer?
 
     init(stateManager: StateManagerV2, playerManager: PlayerManager, sceneManager: SceneManager, transitionManager: TransitionManager) {
         self.stateManager = stateManager
@@ -52,27 +54,21 @@ class PlaybackManagerV2 {
     func startInitialPlayback() {
         debugLog("[PlaybackManagerV2] Setting up initial state...")
         sequenceManager.reset()
-        guard let clips = sequenceManager.nextStep() else {
-            debugLog("[PlaybackManagerV2] Error: No valid initial sequence found.")
-            return
-        }
-        
-        stateManager.currentClipsQueue = clips
-        stateManager.currentClipIndex = 0
-        stateManager.setStateType(from: clips.first!.clipType.groupType)
+
+        stateManager.setStateType(from: stateManager.currentClipsQueue.first!.groupType)
         playNextClipInQueue()
     }
 
     /// Play the next clip in the queue
     func playNextClipInQueue() {
-        guard stateManager.currentClipIndex < stateManager.currentClipsQueue.count else {
+        guard stateManager.currentClipsQueue.count > 0 else {
             debugLog("[PlaybackManagerV2] Queue finished. Generating next sequence...")
             handleEndOfQueue()
             return
         }
-        let clipToPlay = stateManager.currentClipsQueue[stateManager.currentClipIndex]
-        debugLog("[PlaybackManagerV2] Playing clip (\(stateManager.currentClipIndex + 1)/\(stateManager.currentClipsQueue.count)): \(clipToPlay.assetFolder) (\(clipToPlay.clipType))")
-        stateManager.setStateType(from: clipToPlay.clipType.groupType)
+        let clipToPlay = stateManager.currentClipsQueue.removeFirst()
+        debugLog("[PlaybackManagerV2] Playing clip: \(clipToPlay.assetFolder) (\(clipToPlay.clipType))")
+        stateManager.setStateType(from: clipToPlay.groupType)
 
         // 判断spriteType
         let spriteType = clipToPlay.phases.first?.sprites.first?.spriteType
@@ -104,6 +100,7 @@ class PlaybackManagerV2 {
         } else if spriteType == "video" {
             debugLog("[PlaybackManagerV2] Detected video, using AVPlayer.")
             
+
             // 原有 AVPlayer 方式
             let url = urlForClip(clipToPlay)
             guard let videoURL = url else {
@@ -111,24 +108,144 @@ class PlaybackManagerV2 {
                 advanceAndPlay()
                 return
             }
-            let newItem = AVPlayerItem(url: videoURL)
-            playerManager.playerItem = newItem
-            playerManager.queuePlayer.removeAllItems()
-            playerManager.queuePlayer.insert(newItem, after: nil)
-            playerManager.queuePlayer.play()
-            // 创建定时器
-            Timer.scheduledTimer(withTimeInterval: 0.1, repeats: false) { [weak self] timer in
-                if let self = self {
-                    self.playerManager.heicSequencePlayer?.targetNode?.isHidden = true
-                    self.sceneManager.videoNode?.isHidden = false
+
+            // 播放activeScene时，延迟1s，更新背景，activeScene肯定是个视频
+            switch clipToPlay.clipType {
+            case .transitionMask:
+                let maskPlayer = HEICSpriteSequenceMaskPlayer(maskNode: sceneManager.tmMaskSpriteNode!, outlineNode: sceneManager.tmOutlineSpriteNode!)
+                maskPlayer.loadSequence(clip: clipToPlay) { success in
+                    if success {
+                        debugLog("[PlaybackManagerV2] Masking sequence loaded for \(clipToPlay.assetFolder)")
+                        self.sceneManager.assignMaskNode()
+                        maskPlayer.play() { [weak self] in
+                            debugLog("[PlaybackManagerV2] Masking sequence completed for \(clipToPlay.assetFolder)")
+                            self?.sceneManager.unassignMaskNode()
+                            if self?.asVideoNodeNeedHide == true {
+                                // Outline播放完成后，隐藏AS视频节点
+                                self?.sceneManager.asVideoNode?.isHidden = true
+                            }
+                            self?.currentMaskPlayer = nil
+                        }
+                    }
+                    // 立马播放下一个clip
+                    self.advanceAndPlay()
                 }
+                self.currentMaskPlayer = maskPlayer
+                break
+                
+                let (_, outlineURL) = urlForMaskClip(clipToPlay)
+
+                guard let outlineURL = outlineURL else {
+                    debugLog("[PlaybackManagerV2] Error: Outline video file not found for \(clipToPlay.assetFolder)")
+                    advanceAndPlay()
+                    return
+                }
+                
+                guard let videoNode = sceneManager.tmMaskSpriteNode else {
+                    debugLog("[PlaybackManagerV2] Error: No SKSpriteNode available for frameSequence playback.")
+                    advanceAndPlay()
+                    return
+                }
+                
+                let newOutlineItem = AVPlayerItem(url: outlineURL)
+                playerManager.outlinePlayerItem = newOutlineItem
+                playerManager.outlinePlayer.replaceCurrentItem(with: newOutlineItem)
+                
+                // 重新创建一个clip，去掉其中的foregroundEffect sprite
+                var clipToPlayMask: AnimationClipMetadata
+                var spritesMask: [AnimationSprite] = []
+                if let firstPhase = clipToPlay.phases.first {
+                    spritesMask = firstPhase.sprites.filter { $0.plane != "foregroundEffect" }
+                }
+                let firstPhase = AnimationPhase(
+                    phaseType: clipToPlay.phases.first?.phaseType ?? .unknown, sprites: spritesMask
+                )
+                
+                
+                clipToPlayMask = AnimationClipMetadata(
+                    clipType: clipToPlay.clipType,
+                    phases: [firstPhase],
+                    startNode: clipToPlay.startNode,
+                    endNode: clipToPlay.endNode,
+                    transitionPhase: clipToPlay.transitionPhase,
+                    transitionCategoryIDs: clipToPlay.transitionCategoryIDs,
+                    sceneOffset: clipToPlay.sceneOffset,
+                    assetFolder: clipToPlay.assetFolder,
+                    fullFolderPath: clipToPlay.fullFolderPath,
+                    startCharacterBasePoseID: clipToPlay.startCharacterBasePoseID,
+                    endCharacterBasePoseID: clipToPlay.endCharacterBasePoseID,
+                    reactionStyleID: clipToPlay.reactionStyleID,
+                    reactionTrigger: clipToPlay.reactionTrigger,
+                    hideStyleID: clipToPlay.hideStyleID,
+                    revealStyleID: clipToPlay.revealStyleID,
+                    backgroundColor: clipToPlay.backgroundColor,
+                    overlayColor: clipToPlay.overlayColor,
+                    paletteInfo: clipToPlay.paletteInfo,
+                    transitionCategoryInfo: clipToPlay.transitionCategoryInfo,
+                    ignoresSceneOffset: clipToPlay.ignoresSceneOffset,
+                    isFullscreenEffect: clipToPlay.isFullscreenEffect,
+                    poseID: clipToPlay.poseID
+                )
+                        
+                playerManager.heicSequencePlayer?.loadSequence(clip: clipToPlayMask) { success in
+                    debugLog("[PlaybackManagerV2] Masking sequence loaded for \(clipToPlayMask.assetFolder)")
+                    self.sceneManager.assignMaskNode()
+                    self.playerManager.outlinePlayer.play()
+                    if success {
+                        self.playerManager.heicSequencePlayer?.play(on: videoNode) { [weak self] in
+                            debugLog("[PlaybackManagerV2] Masking sequence completed for \(clipToPlay.assetFolder)")
+                        }
+                    }
+                    // 立马播放下一个clip
+                    self.advanceAndPlay()
+                }
+                
+                debugLog("[PlaybackManagerV2] Masking sequence started for \(clipToPlay.assetFolder)")
+
+                
+
+            case .activeScene:
+
+                let newItem = AVPlayerItem(url: videoURL)
+                playerManager.asPlayerItem = newItem
+                playerManager.asPlayer.replaceCurrentItem(with:newItem)
+                playerManager.asPlayer.play()
+                self.asVideoNodeNeedHide = false
+                // 创建定时器
+                Timer.scheduledTimer(withTimeInterval: 0.1, repeats: false) { [weak self] timer in
+                    if let self = self {
+                        self.sceneManager.asVideoNode?.isHidden = false
+                    }
+                }
+                
+                Timer.scheduledTimer(withTimeInterval: 2, repeats: false) { [weak self] timer in
+                    if let self = self {
+                        self.sceneManager.updateBackgrounds()
+                    }
+                }
+            default:
+                let newItem = AVPlayerItem(url: videoURL)
+                playerManager.playerItem = newItem
+                playerManager.queuePlayer.removeAllItems()
+                playerManager.queuePlayer.insert(newItem, after: nil)
+                playerManager.queuePlayer.play()
+                // 创建定时器
+                Timer.scheduledTimer(withTimeInterval: 0.1, repeats: false) { [weak self] timer in
+                    if let self = self {
+                        self.sceneManager.heicVideoNode?.isHidden = true
+                        self.sceneManager.videoNode?.isHidden = false
+                    }
+                }
+                
             }
             return
+
         } else {
             debugLog("[PlaybackManagerV2] Unknown spriteType: \(spriteType ?? "nil") for \(clipToPlay.assetFolder), skipping.")
             advanceAndPlay()
             return
         }
+
     }
 
     /// Handle AVPlayerItemDidPlayToEndTime notification
@@ -137,6 +254,28 @@ class PlaybackManagerV2 {
             debugLog("[PlaybackManagerV2] Notification object is not AVPlayerItem. Ignored.")
             return
         }
+        
+        if finishedItem == playerManager.asPlayerItem {
+            debugLog("[PlaybackManagerV2] ✅ AS/SS播放器内容播放完成")
+            // 移除这个特定的通知观察者
+            NotificationCenter.default.removeObserver(
+                self, name: .AVPlayerItemDidPlayToEndTime, object: finishedItem)
+            self.asVideoNodeNeedHide = true // 标记需要隐藏AS视频节点，下一次outline播放完后将会隐藏
+            advanceAndPlay()
+            return
+        } else if finishedItem == playerManager.outlinePlayerItem {
+            debugLog("[PlaybackManagerV2] ✅ Outline播放器内容播放完成")
+            // 移除这个特定的通知观察者
+            NotificationCenter.default.removeObserver(
+                self, name: .AVPlayerItemDidPlayToEndTime, object: finishedItem)
+            self.sceneManager.unassignMaskNode()
+            if self.asVideoNodeNeedHide {
+                // Outline播放完成后，隐藏AS视频节点
+                self.sceneManager.asVideoNode?.isHidden = true
+            }
+            return
+        }
+        
         guard finishedItem == playerManager.playerItem else {
             debugLog("[PlaybackManagerV2] Notification for unexpected player item. Ignored.")
             return
@@ -147,20 +286,15 @@ class PlaybackManagerV2 {
 
     /// Helper: Advance the queue and play next
     private func advanceAndPlay() {
-        stateManager.currentClipIndex += 1
+        sequenceManager.nextStepAsync()
         playNextClipInQueue()
     }
 
     /// Helper: When queue ends, generate next sequence
     private func handleEndOfQueue() {
         debugLog("[PlaybackManagerV2] Generating next pose/transition/pose sequence...")
-        if let clips = sequenceManager.nextStep() {
-            stateManager.currentClipsQueue = clips
-            stateManager.currentClipIndex = 0
-            playNextClipInQueue()
-        } else {
-            debugLog("[PlaybackManagerV2] No further sequence available. Playback stopped.")
-        }
+        sequenceManager.reset()
+        playNextClipInQueue()
     }
 
     /// Helper: Get file URL for AnimationClipMetadata
@@ -177,6 +311,32 @@ class PlaybackManagerV2 {
             return URL(fileURLWithPath: filePath)
         }
         return nil
+
+    }
+
+    /// Helper: Get file URL for AnimationClipMetadata
+    private func urlForMaskClip(_ clip: AnimationClipMetadata) -> (URL?, URL?) {
+        // 获取 Resources 目录路径
+        guard let resourcesPath = Bundle(for: type(of: self)).resourcePath else { return (nil, nil) }
+        
+        // 构建完整路径：resourcePath + clip.fullFolderPath
+        let fullPath = (resourcesPath as NSString).appendingPathComponent(clip.fullFolderPath)
+
+        var maskURL: URL?
+        var outlineURL: URL?
+        // 遍历clip下的所有spirtes
+        for sprite in clip.phases.first?.sprites ?? [] {
+                
+            let filePath = (fullPath as NSString).appendingPathComponent(sprite.assetBaseName + ".mov")
+            if FileManager.default.fileExists(atPath: filePath) {
+                if sprite.plane == "mask" {
+                    maskURL = URL(fileURLWithPath: filePath)
+                } else if sprite.plane == "foregroundEffect" {
+                    outlineURL = URL(fileURLWithPath: filePath)
+                }
+            }
+        }
+        return (maskURL, outlineURL)
 
     }
 }
