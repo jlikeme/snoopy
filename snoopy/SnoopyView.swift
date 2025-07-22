@@ -6,13 +6,11 @@ import SpriteKit
 class SnoopyScreenSaverView: ScreenSaverView, SKSceneDelegate {
 
     // 所有管理器
-    private var stateManager: StateManagerV2!
+    private var stateManager: StateManager!
     private var sceneManager: SceneManager!
     private var playerManager: PlayerManager!
-    private var playbackManager: PlaybackManagerV2!
-    private var transitionManager: TransitionManager!
-    private var sequenceManager: SequenceManagerV2!
-    private var overlayManager: OverlayManager!
+    private var playbackManager: PlaybackManager!
+    private var sequenceManager: SequenceManager!
     private var weatherManager: WeatherManager!
 
     private var skView: SKView!
@@ -55,7 +53,7 @@ class SnoopyScreenSaverView: ScreenSaverView, SKSceneDelegate {
         addSubview(skView)
 
         // 2. 初始化基本管理器
-        stateManager = StateManagerV2()
+        stateManager = StateManager()
         playerManager = PlayerManager()
         weatherManager = WeatherManager()
         sceneManager = SceneManager(bounds: bounds, weatherManager: weatherManager)
@@ -64,7 +62,6 @@ class SnoopyScreenSaverView: ScreenSaverView, SKSceneDelegate {
         Task {
             do {
                 debugLog("Loading clips...")
-//                self.allClips = try await SnoopyClip.loadClips()
                 let assetClips = AssetClipLoader.loadAllClips()
                 self.allClips = assetClips
                 debugLog("Clips loaded: \(self.allClips.count)")
@@ -79,40 +76,18 @@ class SnoopyScreenSaverView: ScreenSaverView, SKSceneDelegate {
                     guard let self = self else { return }
 
                     // 初始化依赖序列的管理器
-                    self.sequenceManager = SequenceManagerV2(stateManager: self.stateManager, sceneManager: sceneManager, allClips: self.allClips)
+                    self.sequenceManager = SequenceManager(stateManager: self.stateManager, sceneManager: sceneManager, allClips: self.allClips)
                     self.stateManager.allClips = self.allClips
 
-                    // 初始化需要视频片段的管理器
-                    self.overlayManager = OverlayManager(
-                        allClips: self.allClips,
-                        weatherManager: self.weatherManager,
-                        stateManager: self.stateManager
-                    )
-
-                    self.transitionManager = TransitionManager(
+                    // 最后创建协调一切的播放管理器
+                    self.playbackManager = PlaybackManager(
                         stateManager: self.stateManager,
                         playerManager: self.playerManager,
                         sceneManager: self.sceneManager
                     )
 
-                    // 最后创建协调一切的播放管理器
-                    self.playbackManager = PlaybackManagerV2(
-                        stateManager: self.stateManager,
-                        playerManager: self.playerManager,
-                        sceneManager: self.sceneManager,
-                        transitionManager: self.transitionManager
-                    )
-
-                    // 设置各管理器之间的依赖关系
-                    self.transitionManager.setDependencies(
-                        playbackManager: self.playbackManager,
-                        sequenceManager: self.sequenceManager,
-                        overlayManager: self.overlayManager
-                    )
-
                     // 设置播放管理器的序列管理器和叠加层管理器
                     self.playbackManager.setSequenceManager(self.sequenceManager)
-                    self.playbackManager.setOverlayManager(self.overlayManager)
 
                     // 4. 设置场景并完成初始化
                     if let scene = self.sceneManager.scene {
@@ -125,11 +100,6 @@ class SnoopyScreenSaverView: ScreenSaverView, SKSceneDelegate {
                         playerManager: self.playerManager,
                         allClips: assetClips
                     )
-
-                    // 6. 在场景中设置覆盖节点
-                    if let scene = self.sceneManager.scene {
-                        self.overlayManager.setupOverlayNode(in: scene)
-                    }
 
                     // 7. 检查天气（如果适用）
                     self.weatherManager.startWeatherUpdate()

@@ -47,18 +47,12 @@
 				ColorPaletteManager.swift,
 				ErrorLevel.swift,
 				HEICSequencePlayer.swift,
-				OverlayManager.swift,
 				PlaybackManager.swift,
-				PlaybackManagerV2.swift,
 				PlayerManager.swift,
 				SceneManager.swift,
 				SequenceManager.swift,
-				SequenceManagerV2.swift,
-				SnoopyClip.swift,
 				SnoopyView.swift,
 				StateManager.swift,
-				StateManagerV2.swift,
-				TransitionManager.swift,
 				WeatherManager.swift,
 			);
 			target = 41B448FF2DC91490002847F8 /* SnoopyPreview */;
