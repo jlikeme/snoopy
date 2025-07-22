@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import SpriteKit
 
 // ViewStateType based on AnimationClipGroupType
 enum ViewStateTypeV2 {

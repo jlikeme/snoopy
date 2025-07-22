@@ -1,7 +1,7 @@
 Resources/*
 build/*
 */AnimationLogic.md
-.DS_Store
+**/.DS_Store
 .backup
 snoopy.xcodeproj/project.xcworkspace/xcuserdata
 snoopy.xcodeproj/xcuserdata

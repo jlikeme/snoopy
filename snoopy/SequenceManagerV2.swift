@@ -5,9 +5,11 @@ class SequenceManagerV2 {
     private let allClips: [AnimationClipMetadata]
     private var rng = SystemRandomNumberGenerator()
     private let stateManager: StateManagerV2
+    private let sceneManager: SceneManager
 
-    init(stateManager: StateManagerV2, allClips: [AnimationClipMetadata]) {
+    init(stateManager: StateManagerV2, sceneManager: SceneManager, allClips: [AnimationClipMetadata]) {
         self.stateManager = stateManager
+        self.sceneManager = sceneManager
         // Load all clips from assets
         self.allClips = allClips
         // Find all base poses
@@ -16,6 +18,12 @@ class SequenceManagerV2 {
 
     /// Returns the next sequence based on lastClip and its groupType
     func nextStep() {
+        // Check if currentClipsQueue is empty
+        if stateManager.currentClipsQueue.isEmpty {
+            debugLog("[SequenceManagerV2] Current clips queue is empty, starting with a base pose.")
+            reset()
+        }
+        
         guard let lastClip = stateManager.currentClipsQueue.last else {
             debugLog("[SequenceManagerV2] No last clip set and currentClipsQueue is empty.")
             return
@@ -29,10 +37,17 @@ class SequenceManagerV2 {
         switch lastClip.groupType {
         case .pose:
             // Find all transitions starting from this pose
-            let transitions = allClips.filter {
-                $0.groupType == .transition && $0.startCharacterBasePoseID == lastClip.poseID ||
-                ($0.clipType == .category && $0.transitionCategoryInfo?.revealCharacterPoseIDs.count == 0)
+            var transitions = allClips.filter {
+                ($0.groupType == .transition && $0.startCharacterBasePoseID == lastClip.poseID)
             }
+            if transitions.count > 3 {
+                // 增加category clip的支持
+                transitions += allClips.filter {
+                    $0.clipType == .category && $0.startCharacterBasePoseID == lastClip.poseID
+                }
+            }
+            
+            debugLog("[SequenceManagerV2] Last clip is of type .pose, found \(transitions.count) transitions.")
             nextClip = transitions.randomElement(using: &rng)
         case .transition:
             // If last was a transition, go to its end pose
@@ -51,13 +66,13 @@ class SequenceManagerV2 {
         }
         if let next = nextClip {
             if next.clipType != .category {
-                stateManager.currentClipsQueue.append(next)
+                addClipToQueue(next)
                 debugLog("[SequenceManagerV2] Next clip added to queue: \(next.poseID) (\(next.clipType))")
                 if next.phases.first?.sprites.first?.loopable ?? false {
                     // 从0-5创建随机数
                     let randomLoopCount = Int.random(in: 0...5)
                     for _ in 0..<randomLoopCount {
-                        stateManager.currentClipsQueue.append(next)
+                        addClipToQueue(next)
                         debugLog("[SequenceManagerV2] Looping clip: \(next.poseID) (\(next.clipType))")
                     }
                 }
@@ -66,7 +81,8 @@ class SequenceManagerV2 {
             if next.clipType == .sceneTransitionPose {
                 // 查找其对应的所有category clip
                 let categoryClips = allClips.filter {
-                    $0.clipType == .category && $0.startCharacterBasePoseID == next.poseID
+                    // $0.revealCharacterPoseIDs包含next.poseID
+                    $0.clipType == .category && $0.transitionCategoryInfo?.revealCharacterPoseIDs.contains(next.assetBaseName) == true
                 }
                 nextClip = categoryClips.randomElement(using: &rng)
             }
@@ -83,21 +99,22 @@ class SequenceManagerV2 {
                         var hideClip: AnimationClipMetadata?
                         if let sceneTransitionPairs = categoryClip.transitionCategoryInfo?.sceneTransitionPairIDs {
                             let pair = sceneTransitionPairs.randomElement(using: &rng)
+                            debugLog("[SequenceManagerV2] Found scene transition pair: \(pair ?? "nil") for category \(categoryClip.poseID)")
                             let pairClip = allClips.first(where: { $0.poseID == pair })
                             revealClip = allClips.first(where: { $0.poseID == pairClip?.revealStyleID })
                             hideClip = allClips.first(where: { $0.poseID == pairClip?.hideStyleID })
                         }
                         
                         if let revealClip = revealClip {
-                            stateManager.currentClipsQueue.append(revealClip)
+                            addClipToQueue(revealClip)
                             debugLog("[SequenceManagerV2] Added reveal clip: \(revealClip.poseID) for category \(categoryClip.poseID)")
                         }
                         
-                        stateManager.currentClipsQueue.append(sceneClip)
+                        addClipToQueue(sceneClip)
                         debugLog("[SequenceManagerV2] Added active scene clip: \(sceneClip.poseID) for category \(categoryClip.poseID)")
                         
                         if let hideClip = hideClip {
-                            stateManager.currentClipsQueue.append(hideClip)
+                            addClipToQueue(hideClip)
                             debugLog("[SequenceManagerV2] Added hide clip: \(hideClip.poseID) for category \(categoryClip.poseID)")
                         }
 
@@ -106,14 +123,14 @@ class SequenceManagerV2 {
                             for hidePoseID in hideClips {
                                 if let hideClip = allClips.first(where: { $0.assetBaseName == hidePoseID }) {
                                     // 添加hide clip到队列
-                                    stateManager.currentClipsQueue.append(hideClip)
+                                    addClipToQueue(hideClip)
                                     debugLog("[SequenceManagerV2] Added hide clip: \(hideClip.poseID) for category \(categoryClip.poseID)")
                                     // 查找后续的transition clips
                                     let transitionClips = allClips.filter {
                                         $0.groupType == .transition && $0.startCharacterBasePoseID == hideClip.poseID
                                     }
                                     if let nextTransitionClip = transitionClips.randomElement(using: &rng) {
-                                        stateManager.currentClipsQueue.append(nextTransitionClip)
+                                        addClipToQueue(nextTransitionClip)
                                         debugLog("[SequenceManagerV2] Added transition clip: \(nextTransitionClip.poseID) after hide clip \(hideClip.poseID)")
                                     }
                                     break // 只添加第一个hide clip
@@ -131,9 +148,10 @@ class SequenceManagerV2 {
     
     // 异步执行nextStep
     func nextStepAsync() {
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            self?.nextStep()
-        }
+//        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+//            self?.nextStep()
+//        }
+        self.nextStep()
     }
 
     /// Resets to a new random base pose
@@ -143,8 +161,15 @@ class SequenceManagerV2 {
             print("[SequenceManagerV2] No base poses found for reset!")
             return
         }
-        self.stateManager.currentClipsQueue.append(randomPose)
+        addClipToQueue(randomPose)
         print("[SequenceManagerV2] Reset to base pose: \(randomPose.poseID)")
         nextStepAsync()
+    }
+    
+    // MARK: - Private Helper Methods
+    
+    /// 私有方法：将AnimationClipMetadata添加到队列中，使用AnimationClipWithPlayer包装
+    private func addClipToQueue(_ clip: AnimationClipMetadata) {
+        stateManager.currentClipsQueue.append(clip)
     }
 }

@@ -742,4 +742,73 @@ class HEICSpriteSequenceMaskPlayer {
         }
         currentIndex += 1
     }
+
+    /// 边加载边播放：每一帧mask/outline都并发异步加载，加载完后再显示并进入下一帧，保证帧率稳定
+    func playStreaming(clip: AnimationClipMetadata, frameInterval: TimeInterval = 1.0/24.0, completion: (() -> Void)? = nil) {
+        self.clip = clip
+        maskTextures.removeAll()
+        outlineTextures.removeAll()
+        currentIndex = 0
+        isPlaying = true
+        let maskSprite = clip.phases.first?.sprites.first { $0.plane == "mask" }
+        let outlineSprite = clip.phases.first?.sprites.first { $0.plane == "foregroundEffect" }
+        let frameStart = maskSprite?.customTiming?.start ?? 0
+        let frameEnd = maskSprite?.customTiming?.end ?? 0
+        let fullFolderPath = clip.fullFolderPath
+        let digitCount = maskSprite?.frameIndexDigitCount ?? 6
+        let maskBaseName = maskSprite?.assetBaseName ?? ""
+        let outlineBaseName = outlineSprite?.assetBaseName ?? ""
+
+        func loadAndShowFrame(frameIdx: Int) {
+            guard isPlaying, frameIdx < frameEnd else {
+                isPlaying = false
+                completion?()
+                return
+            }
+            let start = CACurrentMediaTime()
+            let group = DispatchGroup()
+            var maskTexture: SKTexture?
+            var outlineTexture: SKTexture?
+            // mask
+            group.enter()
+            DispatchQueue.global().async {
+                let fileName = String(format: "%@_%0*d", maskBaseName, digitCount, frameIdx)
+                let resourcePath = (fullFolderPath as NSString).appendingPathComponent(fileName)
+                if let url = Bundle.main.url(forResource: resourcePath, withExtension: "heic") ??
+                    Bundle(for: type(of: self)).url(forResource: resourcePath, withExtension: "heic"),
+                   let imageData = try? Data(contentsOf: url), let image = NSImage(data: imageData) {
+                    maskTexture = SKTexture(image: image)
+                    maskTexture?.filteringMode = .linear
+                }
+                group.leave()
+            }
+            // outline
+            group.enter()
+            DispatchQueue.global().async {
+                let fileName = String(format: "%@_%0*d", outlineBaseName, digitCount, frameIdx)
+                let resourcePath = (fullFolderPath as NSString).appendingPathComponent(fileName)
+                if let url = Bundle.main.url(forResource: resourcePath, withExtension: "heic") ??
+                    Bundle(for: type(of: self)).url(forResource: resourcePath, withExtension: "heic"),
+                   let imageData = try? Data(contentsOf: url), let image = NSImage(data: imageData) {
+                    outlineTexture = SKTexture(image: image)
+                    outlineTexture?.filteringMode = .linear
+                }
+                group.leave()
+            }
+            group.notify(queue: .main) {
+                if let maskNode = self.maskNode, let maskTexture = maskTexture {
+                    maskNode.texture = maskTexture
+                }
+                if let outlineNode = self.outlineNode, let outlineTexture = outlineTexture {
+                    outlineNode.texture = outlineTexture
+                }
+                let elapsed = CACurrentMediaTime() - start
+                let delay = max(0, frameInterval - elapsed)
+                DispatchQueue.global().asyncAfter(deadline: .now() + delay) {
+                    loadAndShowFrame(frameIdx: frameIdx + 1)
+                }
+            }
+        }
+        loadAndShowFrame(frameIdx: frameStart)
+    }
 }

@@ -112,97 +112,25 @@ class PlaybackManagerV2 {
             // 播放activeScene时，延迟1s，更新背景，activeScene肯定是个视频
             switch clipToPlay.clipType {
             case .transitionMask:
+                debugLog("[PlaybackManagerV2] Masking sequence loaded for \(clipToPlay.assetFolder)")
+                self.sceneManager.assignMaskNode()
                 let maskPlayer = HEICSpriteSequenceMaskPlayer(maskNode: sceneManager.tmMaskSpriteNode!, outlineNode: sceneManager.tmOutlineSpriteNode!)
-                maskPlayer.loadSequence(clip: clipToPlay) { success in
-                    if success {
-                        debugLog("[PlaybackManagerV2] Masking sequence loaded for \(clipToPlay.assetFolder)")
-                        self.sceneManager.assignMaskNode()
-                        maskPlayer.play() { [weak self] in
-                            debugLog("[PlaybackManagerV2] Masking sequence completed for \(clipToPlay.assetFolder)")
-                            self?.sceneManager.unassignMaskNode()
-                            if self?.asVideoNodeNeedHide == true {
-                                // Outline播放完成后，隐藏AS视频节点
-                                self?.sceneManager.asVideoNode?.isHidden = true
-                            }
-                            self?.currentMaskPlayer = nil
-                        }
-                    }
-                    // 立马播放下一个clip
-                    self.advanceAndPlay()
-                }
                 self.currentMaskPlayer = maskPlayer
-                break
-                
-                let (_, outlineURL) = urlForMaskClip(clipToPlay)
-
-                guard let outlineURL = outlineURL else {
-                    debugLog("[PlaybackManagerV2] Error: Outline video file not found for \(clipToPlay.assetFolder)")
-                    advanceAndPlay()
-                    return
-                }
-                
-                guard let videoNode = sceneManager.tmMaskSpriteNode else {
-                    debugLog("[PlaybackManagerV2] Error: No SKSpriteNode available for frameSequence playback.")
-                    advanceAndPlay()
-                    return
-                }
-                
-                let newOutlineItem = AVPlayerItem(url: outlineURL)
-                playerManager.outlinePlayerItem = newOutlineItem
-                playerManager.outlinePlayer.replaceCurrentItem(with: newOutlineItem)
-                
-                // 重新创建一个clip，去掉其中的foregroundEffect sprite
-                var clipToPlayMask: AnimationClipMetadata
-                var spritesMask: [AnimationSprite] = []
-                if let firstPhase = clipToPlay.phases.first {
-                    spritesMask = firstPhase.sprites.filter { $0.plane != "foregroundEffect" }
-                }
-                let firstPhase = AnimationPhase(
-                    phaseType: clipToPlay.phases.first?.phaseType ?? .unknown, sprites: spritesMask
-                )
-                
-                
-                clipToPlayMask = AnimationClipMetadata(
-                    clipType: clipToPlay.clipType,
-                    phases: [firstPhase],
-                    startNode: clipToPlay.startNode,
-                    endNode: clipToPlay.endNode,
-                    transitionPhase: clipToPlay.transitionPhase,
-                    transitionCategoryIDs: clipToPlay.transitionCategoryIDs,
-                    sceneOffset: clipToPlay.sceneOffset,
-                    assetFolder: clipToPlay.assetFolder,
-                    fullFolderPath: clipToPlay.fullFolderPath,
-                    startCharacterBasePoseID: clipToPlay.startCharacterBasePoseID,
-                    endCharacterBasePoseID: clipToPlay.endCharacterBasePoseID,
-                    reactionStyleID: clipToPlay.reactionStyleID,
-                    reactionTrigger: clipToPlay.reactionTrigger,
-                    hideStyleID: clipToPlay.hideStyleID,
-                    revealStyleID: clipToPlay.revealStyleID,
-                    backgroundColor: clipToPlay.backgroundColor,
-                    overlayColor: clipToPlay.overlayColor,
-                    paletteInfo: clipToPlay.paletteInfo,
-                    transitionCategoryInfo: clipToPlay.transitionCategoryInfo,
-                    ignoresSceneOffset: clipToPlay.ignoresSceneOffset,
-                    isFullscreenEffect: clipToPlay.isFullscreenEffect,
-                    poseID: clipToPlay.poseID
-                )
-                        
-                playerManager.heicSequencePlayer?.loadSequence(clip: clipToPlayMask) { success in
-                    debugLog("[PlaybackManagerV2] Masking sequence loaded for \(clipToPlayMask.assetFolder)")
-                    self.sceneManager.assignMaskNode()
-                    self.playerManager.outlinePlayer.play()
-                    if success {
-                        self.playerManager.heicSequencePlayer?.play(on: videoNode) { [weak self] in
-                            debugLog("[PlaybackManagerV2] Masking sequence completed for \(clipToPlay.assetFolder)")
-                        }
+                maskPlayer.playStreaming(clip: clipToPlay) { [weak self] in
+                    debugLog("[PlaybackManagerV2] Masking sequence completed for \(clipToPlay.assetFolder)")
+                    self?.sceneManager.unassignMaskNode()
+                    if self?.asVideoNodeNeedHide == true {
+                        // Outline播放完成后，隐藏AS视频节点
+                        self?.sceneManager.asVideoNode?.isHidden = true
                     }
-                    // 立马播放下一个clip
-                    self.advanceAndPlay()
+                    self?.currentMaskPlayer = nil
+                    // 不执行self.advanceAndPlay()，但最好是执行sequenceManager.nextStepAsync()
+                    self?.sequenceManager.nextStepAsync()
                 }
-                
-                debugLog("[PlaybackManagerV2] Masking sequence started for \(clipToPlay.assetFolder)")
+                // 立马播放下一个clip
+                self.advanceAndPlay()
 
-                
+                debugLog("[PlaybackManagerV2] Masking sequence started for \(clipToPlay.assetFolder)")
 
             case .activeScene:
 
