@@ -125,6 +125,22 @@ class PlaybackManager {
 
                 debugLog("[PlaybackManagerV2] Masking sequence started for \(clipToPlay.assetFolder)")
 
+            case .idleSceneVisitor:
+                let newItem = AVPlayerItem(url: videoURL)
+                playerManager.overlayPlayerItem = newItem
+                playerManager.overlayPlayer.removeAllItems()
+                playerManager.overlayPlayer.insert(newItem, after: nil)
+                playerManager.overlayPlayer.play()
+                // 创建定时器
+                Timer.scheduledTimer(withTimeInterval: 0.1, repeats: false) { [weak self] timer in
+                    if let self = self {
+                        self.sceneManager.overlayNode?.isHidden = false
+                    }
+                }
+
+                // 立马播放下一个clip
+                self.advanceAndPlay()
+
             case .activeScene:
 
                 let newItem = AVPlayerItem(url: videoURL)
@@ -194,6 +210,13 @@ class PlaybackManager {
                 // Outline播放完成后，隐藏AS视频节点
                 self.sceneManager.asVideoNode?.isHidden = true
             }
+            return
+        } else if finishedItem == playerManager.overlayPlayerItem {
+            debugLog("[PlaybackManagerV2] ✅ Overlay播放器内容播放完成")
+            // 移除这个特定的通知观察者
+            NotificationCenter.default.removeObserver(
+                self, name: .AVPlayerItemDidPlayToEndTime, object: finishedItem)
+            self.sceneManager.overlayNode?.isHidden = true
             return
         }
         

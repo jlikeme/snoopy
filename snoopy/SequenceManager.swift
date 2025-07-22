@@ -70,7 +70,19 @@ class SequenceManager {
                 debugLog("[SequenceManagerV2] Next clip added to queue: \(next.poseID) (\(next.clipType))")
                 if next.phases.first?.sprites.first?.loopable ?? false {
                     // 从0-5创建随机数
-                    let randomLoopCount = Int.random(in: 0...5)
+                    let randomLoopCount = Int.random(in: 2...10)
+                    // 如果大于4，随机添加一个idleSceneVisitor
+                    if randomLoopCount > 8 {
+                        // 查找idleSceneVisitor clip
+                        let idleClips = allClips.filter {
+                            $0.clipType == .idleSceneVisitor
+                        }
+                        if let idleClip = idleClips.randomElement(using: &rng) {
+                            addClipToQueue(idleClip)
+                            debugLog("[SequenceManagerV2] Added idleSceneVisitor clip: \(idleClip.poseID) for pose \(next.poseID)")
+                        }
+                    }
+                    
                     for _ in 0..<randomLoopCount {
                         addClipToQueue(next)
                         debugLog("[SequenceManagerV2] Looping clip: \(next.poseID) (\(next.clipType))")
