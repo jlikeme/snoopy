@@ -149,15 +149,15 @@ class AssetClipLoader {
         for clip in result {
             groupedClips[clip.groupType, default: []].append(clip)
         }
-         // 打印分组结果
-         for (clipGroupType, clips) in groupedClips {
-             print("🔦 Clip type: \(clipGroupType), count: \(clips.count)")
-             for clip in clips {
-                 if clip.groupType != .other {
-                     print("🔦 Clip: \(clip.assetFolder)")
-                 }
-             }
-         }
+//         // 打印分组结果
+//         for (clipGroupType, clips) in groupedClips {
+//             print("🔦 Clip type: \(clipGroupType), count: \(clips.count)")
+//             for clip in clips {
+//                 if clip.groupType != .other {
+//                     print("🔦 Clip: \(clip.assetFolder)")
+//                 }
+//             }
+//         }
         return result
     }
 
@@ -343,7 +343,7 @@ class AssetClipLoader {
         for (phaseKey, clipType, phaseType, startID, endID) in phaseMap {
             if let phaseDict = phasedSprites[phaseKey] as? [String: Any],
                let spritesArr = phaseDict["sprites"] as? [[String: Any]] {
-                let sprites = spritesArr.compactMap { parseSprite($0, loopable: nil, fullFolderPath: fullFolderPath) }
+                let sprites = spritesArr.compactMap { parseSprite($0, loopable: phaseType == .loop ? true : nil, fullFolderPath: fullFolderPath) }
                 let phase = AnimationPhase(phaseType: phaseType, sprites: sprites)
                 var poseID = phase.sprites.first?.assetBaseName ?? ""
                 if phaseType == .loop {

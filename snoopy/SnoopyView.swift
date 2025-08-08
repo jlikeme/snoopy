@@ -21,34 +21,41 @@ class SnoopyScreenSaverView: ScreenSaverView, SKSceneDelegate {
 
     override init?(frame: NSRect, isPreview: Bool) {
         super.init(frame: frame, isPreview: isPreview)
-        commonInit()
+        commonInit(frame: frame)
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
-        commonInit()
+        commonInit(frame: bounds)
     }
 
-    private func commonInit() {
+    private func commonInit(frame: NSRect) {
         animationTimeInterval = 1.0 / 24.0
 
         // 在Sonoma上延迟初始化，避免legacyScreenSaver问题
         if #available(macOS 14.0, *) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                self.performSetup()
+                self.performSetup(frame: frame)
             }
         } else {
-            performSetup()
+            performSetup(frame: frame)
         }
 
         setNotifications()
     }
 
-    private func performSetup() {
+    private func performSetup(frame: NSRect) {
         guard !isSetupComplete else { return }
 
+        debugLog("Performing setup bounds: \(bounds), frame: \(frame)")
         // 1. 设置 SpriteKit 视图
-        skView = SKView(frame: bounds)
+        var skViewFrame = CGRect(x: 0, y: 0, width: frame.width, height: frame.height)
+        if bounds.width < frame.width && bounds.height < frame.height {
+            // 如果 bounds 小于 frame，使用 bounds 的大小，适配SnoopyPreview app
+            skViewFrame = CGRect(x: 0, y: 0, width: bounds.width, height: bounds.height)
+        }
+        
+        skView = SKView(frame: skViewFrame)
         skView.autoresizingMask = [.width, .height]
         addSubview(skView)
 
@@ -56,7 +63,7 @@ class SnoopyScreenSaverView: ScreenSaverView, SKSceneDelegate {
         stateManager = StateManager()
         playerManager = PlayerManager()
         weatherManager = WeatherManager()
-        sceneManager = SceneManager(bounds: bounds, weatherManager: weatherManager)
+        sceneManager = SceneManager(bounds: skViewFrame, weatherManager: weatherManager)
 
         // 3. 异步加载视频片段
         Task {

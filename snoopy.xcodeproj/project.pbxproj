@@ -14,6 +14,7 @@
 		A121A4562E1667F0003F04BE /* halftone_pattern.png in Resources */ = {isa = PBXBuildFile; fileRef = A121A2D02E13AD4E003F04BE /* halftone_pattern.png */; };
 		A121A4572E1667F3003F04BE /* DefaultAssetBundleV2 in Resources */ = {isa = PBXBuildFile; fileRef = A121A2CE2E13AD27003F04BE /* DefaultAssetBundleV2 */; };
 		A121A4582E1667F6003F04BE /* DefaultAssetBundle in Resources */ = {isa = PBXBuildFile; fileRef = A121A2CC2E13AD02003F04BE /* DefaultAssetBundle */; };
+		A1E7F09D2E2F96D7002CDE9E /* DefaultAssetBundleV2 in Resources */ = {isa = PBXBuildFile; fileRef = A121A2CE2E13AD27003F04BE /* DefaultAssetBundleV2 */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -267,6 +268,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A1E7F09D2E2F96D7002CDE9E /* DefaultAssetBundleV2 in Resources */,
 				A121A2D22E13AD4E003F04BE /* halftone_pattern.png in Resources */,
 				A121A2D32E13AD4E003F04BE /* Config.plist in Resources */,
 				A121A2CD2E13AD02003F04BE /* DefaultAssetBundle in Resources */,
